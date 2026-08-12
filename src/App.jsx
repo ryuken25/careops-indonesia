@@ -89,7 +89,7 @@ function App() {
 
   const renderPage = () => {
     if (role === 'Caregiver') return <CaregiverPage visits={visits} onCheckIn={handleCheckIn} onComplete={handleComplete} onOpen={(v) => setSelectedVisit(v)} />
-    if (role === 'Keluarga') return <FamilyPage update={familyUpdate} client={activeVisit} />
+    if (role === 'Keluarga') return <FamilyPage update={familyUpdate} client={visits.find((v) => v.client === 'Bapak Hendra Wijaya') || activeVisit} />
     if (active === 'Klien') return <ClientsPage clients={filteredClients} search={search} setSearch={setSearch} />
     if (active === 'Caregiver') return <CaregiversPage />
     if (active === 'Kunjungan') return <VisitsPage visits={visits} onOpen={setSelectedVisit} />
