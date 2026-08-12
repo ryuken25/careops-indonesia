@@ -3,7 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation, useParams } from 'react-rou
 import {
   Activity, AlertTriangle, ArrowDown, ArrowRight, ArrowUp, BarChart3, Bell,
   CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck,
-  ClipboardList, Clock3, Droplets, FileText, HeartPulse, LayoutDashboard, LayoutGrid,
+  ClipboardList, Clock3, Database, Droplets, FileText, HeartPulse, LayoutDashboard, LayoutGrid,
   ListChecks, MapPin, Menu, MessageCircle, MoreHorizontal, NotebookPen, Phone, Plus,
   Search, ShieldCheck, Smile, Sparkles, Stethoscope, TrendingUp, UserRound, UsersRound,
   Utensils, X,
@@ -77,6 +77,7 @@ function App() {
             <Route path="/koordinator/klien" element={<ClientsPage onOpen={setSelectedClient} />} />
             <Route path="/koordinator/caregiver" element={<CaregiversPage />} />
             <Route path="/koordinator/catatan" element={<NotesPage update={familyUpdate} generateDraft={generateDraft} approveUpdate={approveUpdate} exportReport={exportReport} />} />
+            <Route path="/koordinator/database" element={<DatabasePage visits={visits} />} />
             <Route path="/caregiver" element={<CaregiverPage visits={visits} onOpen={setSelectedVisit} onCheckIn={(v) => setStatus(v, 'checked-in')} onComplete={(v) => setStatus(v, 'completed')} onToggleChecklist={toggleChecklist} />} />
             <Route path="/keluarga" element={<Navigate to="/keluarga/c2" replace />} />
             <Route path="/keluarga/:clientId" element={<FamilyRoute update={familyUpdate} />} />
@@ -99,6 +100,7 @@ function Sidebar() {
     { icon: UsersRound, label: 'Klien', to: '/koordinator/klien' },
     { icon: UserRound, label: 'Caregiver', to: '/koordinator/caregiver' },
     { icon: NotebookPen, label: 'Catatan & Insiden', to: '/koordinator/catatan', count: '2' },
+    { icon: Database, label: 'Database', to: '/koordinator/database' },
   ]
   return (
     <aside className="sidebar">
@@ -140,7 +142,7 @@ function Topbar() {
 }
 
 function PageHeader({ eyebrow, title, description, action, children }) { return <div className="page-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{description && <p className="page-description">{description}</p>}</div><div className="header-actions">{children}{action && <button className="btn primary"><Plus size={17} /> {action}</button>}</div></div> }
-function PanelTitle({ title, action, hint }) { return <div className="panel-title"><h2>{title}</h2>{hint && <span className="panel-hint">{hint}</span>}{action && <button className="text-btn">{action}<ArrowRight size={14} /></button>}</div> }
+function PanelTitle({ title, action, hint, actionTo }) { return <div className="panel-title"><h2>{title}</h2>{hint && <span className="panel-hint">{hint}</span>}{action && (actionTo ? <Link to={actionTo} className="text-btn">{action}<ArrowRight size={14} /></Link> : <button className="text-btn">{action}<ArrowRight size={14} /></button>)}</div> }
 function Metric({ icon: Icon, label, value, foot, tone, delta }) { return <div className="metric-card"><div className={`metric-icon ${tone}`}><Icon size={19} /></div><span>{label}</span><strong>{value}</strong><small>{foot}</small>{delta && <span className={`metric-delta ${delta > 0 ? 'up' : 'down'}`}>{delta > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />} {Math.abs(delta)}%</span>}</div> }
 
 function DashboardPage({ visits, onOpen, onCheckIn }) {
@@ -162,7 +164,7 @@ function DashboardPage({ visits, onOpen, onCheckIn }) {
       <section className="panel"><PanelTitle title="Status kunjungan" hint="7 hari terakhir" /><StatusDonut data={statusDistribution} /><div className="donut-legend">{statusDistribution.map((s) => <span key={s.name}><i style={{ background: s.color }} />{s.name}<b>{s.value}</b></span>)}</div></section>
     </div>
     <div className="content-grid two-thirds bottom-grid">
-      <section className="panel schedule-panel"><PanelTitle title="Jadwal hari ini" action="Lihat semua" /><div className="schedule-list">{visits.map((visit) => <VisitRow key={visit.id} visit={visit} onOpen={onOpen} onCheckIn={onCheckIn} />)}</div></section>
+      <section className="panel schedule-panel"><PanelTitle title="Jadwal hari ini" action="Lihat semua" actionTo="/koordinator/database" /><div className="schedule-list">{visits.map((visit) => <VisitRow key={visit.id} visit={visit} onOpen={onOpen} onCheckIn={onCheckIn} />)}</div></section>
       <section className="panel"><PanelTitle title="Beban caregiver" hint="Minggu ini" /><LoadBar data={caregiverLoad} /></section>
     </div>
     <div className="content-grid two-thirds bottom-grid">
@@ -380,6 +382,104 @@ function FamilyPage({ update, client }) {
     <div className="family-contact"><MessageCircle size={18} /><div><strong>Butuh bantuan?</strong><span>Hubungi {client.familyContact.name} atau koordinator CareOps untuk pertanyaan seputar jadwal dan pendampingan.</span></div><ArrowRight size={17} /></div>
     <p className="demo-footnote"><ShieldCheck size={14} /> Tampilan demo menggunakan data simulasi. Bukan informasi medis atau diagnosis.</p>
   </div>
+}
+
+function DatabasePage({ visits }) {
+  const [tab, setTab] = useState('klien')
+  const tabs = [
+    { key: 'klien', label: 'Klien', count: clientSeed.length },
+    { key: 'caregiver', label: 'Caregiver', count: caregiverSeed.length },
+    { key: 'kunjungan', label: 'Kunjungan', count: visits.length },
+    { key: 'insiden', label: 'Insiden', count: incidentSeed.length },
+  ]
+  return <>
+    <PageHeader eyebrow="Contoh data" title="Database" description="Seluruh data contoh yang dipakai di ruang demo ini, dalam satu tempat." />
+    <div className="db-tabs">{tabs.map((t) => <button key={t.key} className={`db-tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>{t.label}<b>{t.count}</b></button>)}</div>
+    <div className="panel db-panel">
+      {tab === 'klien' && <KlienTable />}
+      {tab === 'caregiver' && <CaregiverTable />}
+      {tab === 'kunjungan' && <KunjunganTable visits={visits} />}
+      {tab === 'insiden' && <InsidenTable />}
+    </div>
+    <div className="privacy-strip"><ShieldCheck size={17} /><span>Seluruh data di halaman ini adalah contoh (simulasi), bukan data pasien nyata.</span></div>
+  </>
+}
+
+function KlienTable() {
+  return <div className="table-scroll"><table className="data-table">
+    <thead><tr><th>Klien</th><th>Lokasi</th><th>Layanan</th><th>Tingkat</th><th>Kondisi</th><th>Caregiver</th><th>Status</th><th>Kunjungan berikutnya</th></tr></thead>
+    <tbody>{clientSeed.map((c) => <tr key={c.id}>
+      <td><div className="cell-person"><div className={`avatar avatar-${c.statusTone} small`}>{c.initials}</div><div><strong>{c.name}</strong><span>{c.age} th · {c.gender}</span></div></div></td>
+      <td className="nowrap">{c.city}</td>
+      <td>{c.careType}</td>
+      <td>{c.careLevel}</td>
+      <td className="cond-cell">{c.conditions.join(', ')}</td>
+      <td className="nowrap">{c.caregiver}</td>
+      <td><span className={`status-pill ${c.statusTone}`}>{c.status}</span></td>
+      <td className="nowrap">{c.nextVisit}</td>
+    </tr>)}</tbody>
+  </table></div>
+}
+
+function CaregiverTable() {
+  return <div className="table-scroll"><table className="data-table">
+    <thead><tr><th>Caregiver</th><th>Peran</th><th>Spesialisasi</th><th>Rating</th><th>Kunjungan hari ini</th><th>Selesai</th><th>Beban minggu ini</th><th>Status</th></tr></thead>
+    <tbody>{caregiverSeed.map((p) => {
+      const load = caregiverLoad.find((l) => l.name === p.name.split(' ')[0])
+      return <tr key={p.id}>
+        <td><div className="cell-person"><div className={`avatar avatar-${p.color} small`}>{p.initials}</div><div><strong>{p.name}</strong></div></div></td>
+        <td>{p.role}</td>
+        <td>{p.specialty}</td>
+        <td><span className="rating-inline">★ {p.rating}</span></td>
+        <td>{p.visitsToday}</td>
+        <td>{p.completedToday}</td>
+        <td>{load ? load.kunjungan : 0}</td>
+        <td><span className={`status-pill ${p.tone}`}>{p.status}</span></td>
+      </tr>
+    })}</tbody>
+  </table></div>
+}
+
+function KunjunganTable({ visits }) {
+  const metaMap = { scheduled: ['Terjadwal', 'slate'], 'checked-in': ['Berlangsung', 'blue'], completed: ['Selesai', 'green'] }
+  return <div className="table-scroll"><table className="data-table">
+    <thead><tr><th>Waktu</th><th>Klien</th><th>Layanan</th><th>Caregiver</th><th>Lokasi</th><th>Status</th><th>Daftar tugas</th></tr></thead>
+    <tbody>{visits.map((v) => {
+      const meta = metaMap[v.status]
+      const done = (v.checklist || []).filter((c) => c.done).length
+      const total = (v.checklist || []).length
+      return <tr key={v.id}>
+        <td className="nowrap">{v.time}</td>
+        <td><strong>{v.client}</strong></td>
+        <td>{v.type}</td>
+        <td className="nowrap">{v.caregiver}</td>
+        <td className="nowrap">{v.location}</td>
+        <td><span className={`status-pill ${meta[1]}`}>{meta[0]}</span></td>
+        <td>{total ? `${done}/${total}` : '—'}</td>
+      </tr>
+    })}</tbody>
+  </table></div>
+}
+
+function InsidenTable() {
+  const sev = { tinggi: ['red', 'Tinggi'], sedang: ['amber', 'Sedang'], rendah: ['blue', 'Rendah'] }
+  const stat = { open: ['Terbuka', 'amber'], review: ['Ditinjau', 'blue'], resolved: ['Selesai', 'green'] }
+  return <div className="table-scroll"><table className="data-table">
+    <thead><tr><th>Insiden</th><th>Klien</th><th>Kategori</th><th>Tingkat</th><th>Status</th><th>Detail</th><th>Waktu</th></tr></thead>
+    <tbody>{incidentSeed.map((i) => {
+      const [tone, label] = sev[i.severity] || ['blue', i.severity]
+      const [stLabel, stTone] = stat[i.status] || ['Terbuka', 'amber']
+      return <tr key={i.id}>
+        <td><strong>{i.title}</strong></td>
+        <td className="nowrap">{i.client}</td>
+        <td>{i.category}</td>
+        <td><span className={`sev-pill ${tone}`}>{label}</span></td>
+        <td><span className={`status-pill ${stTone}`}>{stLabel}</span></td>
+        <td className="cond-cell">{i.detail}</td>
+        <td className="nowrap">{i.time}</td>
+      </tr>
+    })}</tbody>
+  </table></div>
 }
 
 function VisitModal({ visit, onClose, onCheckIn, onComplete, onToggleChecklist, onSave }) {
