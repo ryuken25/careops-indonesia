@@ -4,8 +4,8 @@ import {
   Activity, AlertTriangle, ArrowDown, ArrowRight, ArrowUp, BarChart3, Bell,
   CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck,
   ClipboardList, Clock3, Database, Droplets, FileText, HeartPulse, LayoutDashboard, LayoutGrid,
-  ListChecks, MapPin, Menu, MessageCircle, MoreHorizontal, NotebookPen, Phone, Plus,
-  Search, ShieldCheck, Smile, Sparkles, Stethoscope, TrendingUp, UserRound, UsersRound,
+  ListChecks, MapPin, Menu, MessageCircle, MoreHorizontal, NotebookPen, Pencil, Phone, Plus,
+  Search, ShieldCheck, Smile, Sparkles, Stethoscope, Trash2, TrendingUp, UserRound, UsersRound,
   Utensils, X,
 } from 'lucide-react'
 import { LoadBar, StatusDonut, TrendChart, VitalsChart, VitalsPulse } from './charts.jsx'
@@ -20,19 +20,32 @@ const MOODS = [
   { key: 'cukup', label: 'Cukup', emoji: '🙂' },
   { key: 'lesu', label: 'Lesu', emoji: '😔' },
 ]
+const STORAGE_CLIENTS = 'careops-clients'
+const STORAGE_CAREGIVERS = 'careops-caregivers'
+const uid = () => 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+const initialsOf = (name) => (name || '').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()
+const load = (key, fallback) => { try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v } catch { return fallback } }
+const defaultVitals = () => Array.from({ length: 7 }, (_, i) => ({ date: `${12 + i}/08`, sistolik: 124 + i, diastolik: 80, nadi: 72 }))
+const STATUS_TONE = { 'Bertugas': 'green', 'Sedang kunjungan': 'blue', 'Siap ditugaskan': 'slate', 'Istirahat': 'amber' }
 
 function App() {
-  const [visits, setVisits] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || initialVisits } catch { return initialVisits }
-  })
+  const [clients, setClients] = useState(() => load(STORAGE_CLIENTS, clientSeed))
+  const [caregivers, setCaregivers] = useState(() => load(STORAGE_CAREGIVERS, caregiverSeed))
+  const [visits, setVisits] = useState(() => load(STORAGE_KEY, initialVisits))
   const [selectedVisit, setSelectedVisit] = useState(null)
   const [selectedClient, setSelectedClient] = useState(null)
+  const [caregiverForm, setCaregiverForm] = useState(null)
+  const [clientForm, setClientForm] = useState(null)
+  const [visitForm, setVisitForm] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
   const [toast, setToast] = useState('')
   const [familyUpdate, setFamilyUpdate] = useState(INITIAL_FAMILY_UPDATE)
   const location = useLocation()
   const isCoordinator = location.pathname.startsWith('/koordinator')
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(visits)) }, [visits])
+  useEffect(() => { localStorage.setItem(STORAGE_CLIENTS, JSON.stringify(clients)) }, [clients])
+  useEffect(() => { localStorage.setItem(STORAGE_CAREGIVERS, JSON.stringify(caregivers)) }, [caregivers])
 
   const notify = (message) => { setToast(message); window.setTimeout(() => setToast(''), 2600) }
   const updateVisit = (id, patch) => setVisits((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)))
@@ -49,6 +62,23 @@ function App() {
     return { ...item, checklist }
   }))
 
+  const upsert = (setter) => (data) => setter((list) => list.some((x) => x.id === data.id) ? list.map((x) => (x.id === data.id ? data : x)) : [...list, data])
+
+  const saveCaregiver = (data) => { upsert(setCaregivers)(data); setCaregiverForm(null); notify(`${data.name} disimpan.`) }
+  const saveClient = (data) => { upsert(setClients)(data); setClientForm(null); notify(`${data.name} disimpan.`) }
+  const saveVisit = (data) => { upsert(setVisits)(data); setVisitForm(null); notify('Kunjungan disimpan.') }
+
+  const askDelete = (kind, id, name) => setDeleteTarget({ kind, id, name })
+  const confirmDelete = () => {
+    if (!deleteTarget) return
+    const { kind, id, name } = deleteTarget
+    if (kind === 'caregiver') setCaregivers((c) => c.filter((x) => x.id !== id))
+    if (kind === 'client') setClients((c) => c.filter((x) => x.id !== id))
+    if (kind === 'visit') setVisits((v) => v.filter((x) => x.id !== id))
+    notify(`${name} berhasil dihapus.`)
+    setDeleteTarget(null)
+  }
+
   const generateDraft = () => {
     setFamilyUpdate({ status: 'draft', text: 'Bapak Hendra menjalani aktivitas pagi dengan baik. Ia mengikuti latihan gerak ringan dan makan dengan cukup. Tidak ada keluhan baru yang dicatat selama kunjungan.' })
     notify('Draf update keluarga dibuat. Silakan tinjau sebelum disetujui.')
@@ -64,39 +94,45 @@ function App() {
     notify('Laporan harian berhasil diunduh.')
   }
 
+  const openIncomplete = () => { const v = visits.find((x) => x.caregiver === 'Dewi Lestari' && x.status === 'scheduled') || visits[0]; if (v) setSelectedVisit(v) }
+
   return (
     <div className="app-shell">
-      {isCoordinator && <Sidebar />}
+      {isCoordinator && <Sidebar visitCount={visits.filter((v) => v.status === 'scheduled').length} />}
       <main className={`main-content ${isCoordinator ? '' : 'no-sidebar'}`}>
         <Topbar />
         <div className="page-wrap">
           <Routes>
             <Route path="/" element={<Navigate to="/koordinator" replace />} />
-            <Route path="/koordinator" element={<DashboardPage visits={visits} onOpen={setSelectedVisit} onCheckIn={(v) => setStatus(v, 'checked-in')} />} />
-            <Route path="/koordinator/kunjungan" element={<VisitsPage visits={visits} onOpen={setSelectedVisit} onMove={setStatus} />} />
-            <Route path="/koordinator/klien" element={<ClientsPage onOpen={setSelectedClient} />} />
-            <Route path="/koordinator/caregiver" element={<CaregiversPage />} />
-            <Route path="/koordinator/catatan" element={<NotesPage update={familyUpdate} generateDraft={generateDraft} approveUpdate={approveUpdate} exportReport={exportReport} />} />
-            <Route path="/koordinator/database" element={<DatabasePage visits={visits} />} />
+            <Route path="/koordinator" element={<DashboardPage visits={visits} onOpen={setSelectedVisit} onCheckIn={(v) => setStatus(v, 'checked-in')} onSchedule={() => setVisitForm({ visit: null })} />} />
+            <Route path="/koordinator/kunjungan" element={<VisitsPage visits={visits} onOpen={setSelectedVisit} onMove={setStatus} onAdd={() => setVisitForm({ visit: null })} onDelete={(v) => askDelete('visit', v.id, v.client)} />} />
+            <Route path="/koordinator/klien" element={<ClientsPage clients={clients} onOpen={setSelectedClient} onAdd={() => setClientForm({ client: null })} />} />
+            <Route path="/koordinator/caregiver" element={<CaregiversPage caregivers={caregivers} onAdd={() => setCaregiverForm({ caregiver: null })} onEdit={(c) => setCaregiverForm({ caregiver: c })} onDelete={(c) => askDelete('caregiver', c.id, c.name)} />} />
+            <Route path="/koordinator/catatan" element={<NotesPage update={familyUpdate} generateDraft={generateDraft} approveUpdate={approveUpdate} exportReport={exportReport} onOpen={openIncomplete} />} />
+            <Route path="/koordinator/database" element={<DatabasePage visits={visits} clients={clients} caregivers={caregivers} />} />
             <Route path="/caregiver" element={<CaregiverPage visits={visits} onOpen={setSelectedVisit} onCheckIn={(v) => setStatus(v, 'checked-in')} onComplete={(v) => setStatus(v, 'completed')} onToggleChecklist={toggleChecklist} />} />
             <Route path="/keluarga" element={<Navigate to="/keluarga/c2" replace />} />
-            <Route path="/keluarga/:clientId" element={<FamilyRoute update={familyUpdate} />} />
+            <Route path="/keluarga/:clientId" element={<FamilyRoute update={familyUpdate} clients={clients} />} />
             <Route path="*" element={<Navigate to="/koordinator" replace />} />
           </Routes>
         </div>
       </main>
-      {selectedVisit && <VisitModal visit={selectedVisit} onClose={() => setSelectedVisit(null)} onCheckIn={() => setStatus(selectedVisit, 'checked-in')} onComplete={() => setStatus(selectedVisit, 'completed')} onToggleChecklist={(i) => toggleChecklist(selectedVisit.id, i)} onSave={(note) => { updateVisit(selectedVisit.id, { note }); notify('Catatan perawatan tersimpan.') }} />}
-      {selectedClient && <ClientDrawer client={selectedClient} onClose={() => setSelectedClient(null)} />}
+      {selectedVisit && <VisitModal visit={selectedVisit} onClose={() => setSelectedVisit(null)} onCheckIn={() => setStatus(selectedVisit, 'checked-in')} onComplete={() => setStatus(selectedVisit, 'completed')} onToggleChecklist={(i) => toggleChecklist(selectedVisit.id, i)} onSave={(note) => { updateVisit(selectedVisit.id, { note }); notify('Catatan perawatan tersimpan.') }} onDelete={() => { setSelectedVisit(null); askDelete('visit', selectedVisit.id, selectedVisit.client) }} />}
+      {selectedClient && <ClientDrawer client={selectedClient} caregivers={caregivers} onClose={() => setSelectedClient(null)} onEdit={(c) => { setSelectedClient(null); setClientForm({ client: c }) }} onDelete={(c) => { setSelectedClient(null); askDelete('client', c.id, c.name) }} />}
+      {caregiverForm && <CaregiverFormModal caregiver={caregiverForm.caregiver} onClose={() => setCaregiverForm(null)} onSave={saveCaregiver} />}
+      {clientForm && <ClientFormModal client={clientForm.client} caregivers={caregivers} onClose={() => setClientForm(null)} onSave={saveClient} />}
+      {visitForm && <VisitFormModal visit={visitForm.visit} clients={clients} caregivers={caregivers} onClose={() => setVisitForm(null)} onSave={saveVisit} />}
+      {deleteTarget && <ConfirmModal title={deleteTarget.kind === 'visit' ? 'Hapus kunjungan?' : deleteTarget.kind === 'client' ? 'Hapus klien?' : 'Hapus caregiver?'} message={`"${deleteTarget.name}" akan dihapus permanen dari ruang demo. Tindakan ini tidak bisa dibatalkan.`} onCancel={() => setDeleteTarget(null)} onConfirm={confirmDelete} />}
       {toast && <div className="toast"><CheckCircle2 size={17} /> {toast}</div>}
     </div>
   )
 }
 
-function Sidebar() {
+function Sidebar({ visitCount }) {
   const location = useLocation()
   const items = [
     { icon: LayoutDashboard, label: 'Ringkasan', to: '/koordinator' },
-    { icon: CalendarDays, label: 'Kunjungan', to: '/koordinator/kunjungan', count: '4' },
+    { icon: CalendarDays, label: 'Kunjungan', to: '/koordinator/kunjungan', count: String(visitCount) },
     { icon: UsersRound, label: 'Klien', to: '/koordinator/klien' },
     { icon: UserRound, label: 'Caregiver', to: '/koordinator/caregiver' },
     { icon: NotebookPen, label: 'Catatan & Insiden', to: '/koordinator/catatan', count: '2' },
@@ -141,17 +177,17 @@ function Topbar() {
   )
 }
 
-function PageHeader({ eyebrow, title, description, action, children }) { return <div className="page-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{description && <p className="page-description">{description}</p>}</div><div className="header-actions">{children}{action && <button className="btn primary"><Plus size={17} /> {action}</button>}</div></div> }
-function PanelTitle({ title, action, hint, actionTo }) { return <div className="panel-title"><h2>{title}</h2>{hint && <span className="panel-hint">{hint}</span>}{action && (actionTo ? <Link to={actionTo} className="text-btn">{action}<ArrowRight size={14} /></Link> : <button className="text-btn">{action}<ArrowRight size={14} /></button>)}</div> }
+function PageHeader({ eyebrow, title, description, action, onAction, children }) { return <div className="page-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{description && <p className="page-description">{description}</p>}</div><div className="header-actions">{children}{action && <button className="btn primary" onClick={onAction}><Plus size={17} /> {action}</button>}</div></div> }
+function PanelTitle({ title, action, hint, actionTo, onAction }) { return <div className="panel-title"><h2>{title}</h2>{hint && <span className="panel-hint">{hint}</span>}{action && (actionTo ? <Link to={actionTo} className="text-btn">{action}<ArrowRight size={14} /></Link> : <button className="text-btn" onClick={onAction}>{action}<ArrowRight size={14} /></button>)}</div> }
 function Metric({ icon: Icon, label, value, foot, tone, delta }) { return <div className="metric-card"><div className={`metric-icon ${tone}`}><Icon size={19} /></div><span>{label}</span><strong>{value}</strong><small>{foot}</small>{delta && <span className={`metric-delta ${delta > 0 ? 'up' : 'down'}`}>{delta > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />} {Math.abs(delta)}%</span>}</div> }
 
-function DashboardPage({ visits, onOpen, onCheckIn }) {
+function DashboardPage({ visits, onOpen, onCheckIn, onSchedule }) {
   const completed = visits.filter((v) => v.status === 'completed').length
   const ongoing = visits.filter((v) => v.status === 'checked-in').length
   const scheduled = visits.filter((v) => v.status === 'scheduled').length
   const activeVisit = visits.find((v) => v.status === 'checked-in')
   return <>
-    <PageHeader eyebrow="Selasa, 18 Agustus 2026" title="Selamat pagi, Andini" description="Berikut gambaran operasional kunjungan hari ini." action="Jadwalkan kunjungan" />
+    <PageHeader eyebrow="Selasa, 18 Agustus 2026" title="Selamat pagi, Andini" description="Berikut gambaran operasional kunjungan hari ini." action="Jadwalkan kunjungan" onAction={onSchedule} />
     <div className="notice"><div className="notice-symbol"><ShieldCheck size={18} /></div><div><strong>Ruang demo CareOps Indonesia</strong><span>Gunakan navigasi peran di kanan atas untuk melihat sisi coordinator, caregiver, dan keluarga.</span></div><button aria-label="Tutup"><X size={16} /></button></div>
     <div className="metrics-grid">
       <Metric icon={CalendarDays} label="Kunjungan hari ini" value={String(visits.length)} foot={`${completed} selesai · ${ongoing} berlangsung · ${scheduled} terjadwal`} tone="blue" delta={8} />
@@ -168,7 +204,7 @@ function DashboardPage({ visits, onOpen, onCheckIn }) {
       <section className="panel"><PanelTitle title="Beban caregiver" hint="Minggu ini" /><LoadBar data={caregiverLoad} /></section>
     </div>
     <div className="content-grid two-thirds bottom-grid">
-      <section className="panel"><PanelTitle title="Perlu perhatian" action="Semua catatan" /><div className="incident-list">{incidentSeed.slice(0, 3).map((item) => <Incident key={item.id} {...item} />)}</div></section>
+      <section className="panel"><PanelTitle title="Perlu perhatian" action="Semua catatan" actionTo="/koordinator/catatan" /><div className="incident-list">{incidentSeed.slice(0, 3).map((item) => <Incident key={item.id} {...item} />)}</div></section>
       <section className="panel care-quality"><PanelTitle title="Kualitas pendampingan" action="Minggu ini" /><div className="quality-score"><div className="score-ring"><strong>94</strong><span>/100</span></div><div><strong className="score-label">Baik sekali</strong><p>Indikator operasional stabil. Ada ruang perbaikan pada kelengkapan catatan kunjungan pagi.</p></div></div><div className="progress-row"><span>Kunjungan tepat waktu</span><strong>96%</strong><div className="progress"><i style={{ width: '96%' }} /></div></div><div className="progress-row"><span>Catatan lengkap</span><strong>86%</strong><div className="progress"><i style={{ width: '86%' }} /></div></div><div className="progress-row"><span>Kepuasan keluarga</span><strong>4.8</strong><div className="progress"><i style={{ width: '96%' }} /></div></div></section>
     </div>
     {activeVisit && <div className="flow-hint"><div className="flow-icon"><Sparkles size={19} /></div><div><strong>Alur contoh sedang berlangsung</strong><span>{activeVisit.caregiver} sedang mencatat kunjungan {activeVisit.client}. Buka menu <b>Catatan & Insiden</b> untuk meninjau draf update keluarga.</span></div><ArrowRight size={18} /></div>}
@@ -195,12 +231,12 @@ function Incident({ title, detail, time, severity }) {
   return <div className="incident"><div className={`incident-icon ${tone}`}><AlertTriangle size={17} /></div><div><strong>{title}</strong><span>{detail}</span><small>{time}</small></div><span className={`sev-pill ${tone}`}>{label}</span></div>
 }
 
-function ClientsPage({ onOpen }) {
+function ClientsPage({ clients, onOpen, onAdd }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('Semua')
-  const filtered = clientSeed.filter((c) => `${c.name} ${c.city} ${c.careType}`.toLowerCase().includes(search.toLowerCase())).filter((c) => filter === 'Semua' ? true : filter === 'Perlu perhatian' ? c.statusTone === 'amber' : c.statusTone === 'green')
+  const filtered = clients.filter((c) => `${c.name} ${c.city} ${c.careType}`.toLowerCase().includes(search.toLowerCase())).filter((c) => filter === 'Semua' ? true : filter === 'Perlu perhatian' ? c.statusTone === 'amber' : c.statusTone === 'green')
   return <>
-    <PageHeader eyebrow="Data klien" title="Klien" description="Daftar klien beserta rencana dan status pendampingan." action="Tambah klien" />
+    <PageHeader eyebrow="Data klien" title="Klien" description="Daftar klien beserta rencana dan status pendampingan." action="Tambah klien" onAction={onAdd} />
     <div className="toolbar">
       <div className="search-box"><Search size={17} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari nama, lokasi, atau layanan..." /></div>
       <div className="filter-pills">{['Semua', 'Perlu perhatian', 'Stabil'].map((f) => <button key={f} className={`filter-pill ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>{f}</button>)}</div>
@@ -223,10 +259,10 @@ function ClientCard({ client, onOpen }) {
   )
 }
 
-function CaregiversPage() {
+function CaregiversPage({ caregivers, onAdd, onEdit, onDelete }) {
   return <>
-    <PageHeader eyebrow="Tim pendamping" title="Caregiver" description="Pantau penugasan, beban kerja, dan ketersediaan tim." action="Tambah caregiver" />
-    <div className="caregiver-grid">{caregiverSeed.map((person) => {
+    <PageHeader eyebrow="Tim pendamping" title="Caregiver" description="Pantau penugasan, beban kerja, dan ketersediaan tim." action="Tambah caregiver" onAction={onAdd} />
+    <div className="caregiver-grid">{caregivers.map((person) => {
       const load = caregiverLoad.find((l) => l.name === person.name.split(' ')[0])
       return (
         <div className="caregiver-card" key={person.id}>
@@ -236,21 +272,22 @@ function CaregiversPage() {
           <div className="caregiver-stat"><span>Kunjungan hari ini</span><strong>{person.visitsToday}</strong></div>
           <div className="caregiver-stat"><span>Selesai</span><strong>{person.completedToday}</strong></div>
           <div className="caregiver-stat"><span>Beban minggu ini</span><strong>{load ? load.kunjungan : 0} kunjungan</strong></div>
-          <button className="outline-btn">Lihat profil <ArrowRight size={14} /></button>
+          <div className="card-actions"><button className="outline-btn" onClick={() => onEdit(person)}><Pencil size={13} /> Edit</button><button className="danger-icon" aria-label="Hapus caregiver" onClick={() => onDelete(person)}><Trash2 size={15} /></button></div>
         </div>
       )
     })}</div>
+    {caregivers.length === 0 && <div className="empty-state"><UserRound size={22} /><p>Belum ada caregiver. Tambahkan satu untuk memulai.</p></div>}
   </>
 }
 
-function VisitsPage({ visits, onOpen, onMove }) {
+function VisitsPage({ visits, onOpen, onMove, onAdd, onDelete }) {
   const columns = [
     { key: 'scheduled', label: 'Terjadwal', tone: 'slate' },
     { key: 'checked-in', label: 'Berlangsung', tone: 'blue' },
     { key: 'completed', label: 'Selesai', tone: 'green' },
   ]
   return <>
-    <PageHeader eyebrow="Operasional" title="Kunjungan" description="Atur dan pantau status kunjungan dalam satu papan kerja." action="Jadwalkan kunjungan" />
+    <PageHeader eyebrow="Operasional" title="Kunjungan" description="Atur dan pantau status kunjungan dalam satu papan kerja." action="Jadwalkan kunjungan" onAction={onAdd} />
     <div className="kanban-board">
       {columns.map((col) => (
         <div className="kanban-col" key={col.key}>
@@ -258,8 +295,8 @@ function VisitsPage({ visits, onOpen, onMove }) {
           <div className="kanban-cards">
             {visits.filter((v) => v.status === col.key).map((v) => (
               <div className="kanban-card" key={v.id}>
-                <div className="kanban-card-top"><span className="kanban-time"><Clock3 size={13} /> {v.time}</span><MoreHorizontal size={16} className="muted-icon" onClick={() => onOpen(v)} /></div>
-                <div className="kanban-client"><div className={`avatar avatar-${col.tone === 'green' ? 'green' : col.tone === 'blue' ? 'blue' : 'purple'} small`}>{v.initials}</div><div><strong>{v.client}</strong><span>{v.type}</span></div></div>
+                <div className="kanban-card-top"><span className="kanban-time"><Clock3 size={13} /> {v.time}</span><button className="muted-icon kanban-del" onClick={() => onDelete(v)} aria-label="Hapus kunjungan"><Trash2 size={14} /></button></div>
+                <div className="kanban-client" onClick={() => onOpen(v)}><div className={`avatar avatar-${col.tone === 'green' ? 'green' : col.tone === 'blue' ? 'blue' : 'purple'} small`}>{v.initials}</div><div><strong>{v.client}</strong><span>{v.type}</span></div></div>
                 <div className="kanban-meta"><MapPin size={12} /> {v.location} · {v.caregiver}</div>
                 {v.status === 'scheduled' && <button className="btn primary full sm" onClick={() => onMove(v, 'checked-in')}>Mulai kunjungan</button>}
                 {v.status === 'checked-in' && <button className="btn secondary full sm" onClick={() => onMove(v, 'completed')}><Check size={15} /> Selesaikan</button>}
@@ -273,7 +310,7 @@ function VisitsPage({ visits, onOpen, onMove }) {
   </>
 }
 
-function NotesPage({ update, generateDraft, approveUpdate, exportReport }) {
+function NotesPage({ update, generateDraft, approveUpdate, exportReport, onOpen }) {
   return <>
     <PageHeader eyebrow="Catatan & komunikasi" title="Catatan perawatan" description="Tinjau catatan caregiver, kelola insiden, dan siapkan update keluarga."><button className="btn secondary" onClick={exportReport}><FileText size={16} /> Unduh laporan</button></PageHeader>
     <div className="content-grid notes-grid">
@@ -287,7 +324,7 @@ function NotesPage({ update, generateDraft, approveUpdate, exportReport }) {
         <div className="note-card incomplete">
           <div className="note-card-header"><div className="avatar avatar-purple">DL</div><div><strong>Dewi Lestari</strong><span>Hari ini, 10.12 · Ibu Sari Wulandari</span></div><span className="status-pill amber">Belum lengkap</span></div>
           <p>Catatan kunjungan belum dikirim. Lengkapi sebelum pergantian shift sore.</p>
-          <button className="text-btn">Lengkapi catatan <ArrowRight size={14} /></button>
+          <button className="text-btn" onClick={onOpen}>Lengkapi catatan <ArrowRight size={14} /></button>
         </div>
         <div className="incident-divider" />
         <PanelTitle title="Insiden & tindak lanjut" />
@@ -340,10 +377,10 @@ function CaregiverPage({ visits, onOpen, onCheckIn, onComplete, onToggleChecklis
   </div>
 }
 
-function FamilyRoute({ update }) {
+function FamilyRoute({ update, clients }) {
   const { clientId } = useParams()
-  const client = clientSeed.find((c) => c.id === clientId) || clientSeed[1]
-  return <FamilyPage update={update} client={client} />
+  const client = clients.find((c) => c.id === clientId) || clients[0]
+  return client ? <FamilyPage update={update} client={client} /> : <Navigate to="/koordinator" replace />
 }
 
 function FamilyPage({ update, client }) {
@@ -384,11 +421,11 @@ function FamilyPage({ update, client }) {
   </div>
 }
 
-function DatabasePage({ visits }) {
+function DatabasePage({ visits, clients, caregivers }) {
   const [tab, setTab] = useState('klien')
   const tabs = [
-    { key: 'klien', label: 'Klien', count: clientSeed.length },
-    { key: 'caregiver', label: 'Caregiver', count: caregiverSeed.length },
+    { key: 'klien', label: 'Klien', count: clients.length },
+    { key: 'caregiver', label: 'Caregiver', count: caregivers.length },
     { key: 'kunjungan', label: 'Kunjungan', count: visits.length },
     { key: 'insiden', label: 'Insiden', count: incidentSeed.length },
   ]
@@ -396,8 +433,8 @@ function DatabasePage({ visits }) {
     <PageHeader eyebrow="Contoh data" title="Database" description="Seluruh data contoh yang dipakai di ruang demo ini, dalam satu tempat." />
     <div className="db-tabs">{tabs.map((t) => <button key={t.key} className={`db-tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>{t.label}<b>{t.count}</b></button>)}</div>
     <div className="panel db-panel">
-      {tab === 'klien' && <KlienTable />}
-      {tab === 'caregiver' && <CaregiverTable />}
+      {tab === 'klien' && <KlienTable clients={clients} />}
+      {tab === 'caregiver' && <CaregiverTable caregivers={caregivers} />}
       {tab === 'kunjungan' && <KunjunganTable visits={visits} />}
       {tab === 'insiden' && <InsidenTable />}
     </div>
@@ -405,10 +442,10 @@ function DatabasePage({ visits }) {
   </>
 }
 
-function KlienTable() {
+function KlienTable({ clients }) {
   return <div className="table-scroll"><table className="data-table">
     <thead><tr><th>Klien</th><th>Lokasi</th><th>Layanan</th><th>Tingkat</th><th>Kondisi</th><th>Caregiver</th><th>Status</th><th>Kunjungan berikutnya</th></tr></thead>
-    <tbody>{clientSeed.map((c) => <tr key={c.id}>
+    <tbody>{clients.map((c) => <tr key={c.id}>
       <td><div className="cell-person"><div className={`avatar avatar-${c.statusTone} small`}>{c.initials}</div><div><strong>{c.name}</strong><span>{c.age} th · {c.gender}</span></div></div></td>
       <td className="nowrap">{c.city}</td>
       <td>{c.careType}</td>
@@ -421,10 +458,10 @@ function KlienTable() {
   </table></div>
 }
 
-function CaregiverTable() {
+function CaregiverTable({ caregivers }) {
   return <div className="table-scroll"><table className="data-table">
     <thead><tr><th>Caregiver</th><th>Peran</th><th>Spesialisasi</th><th>Rating</th><th>Kunjungan hari ini</th><th>Selesai</th><th>Beban minggu ini</th><th>Status</th></tr></thead>
-    <tbody>{caregiverSeed.map((p) => {
+    <tbody>{caregivers.map((p) => {
       const load = caregiverLoad.find((l) => l.name === p.name.split(' ')[0])
       return <tr key={p.id}>
         <td><div className="cell-person"><div className={`avatar avatar-${p.color} small`}>{p.initials}</div><div><strong>{p.name}</strong></div></div></td>
@@ -482,7 +519,139 @@ function InsidenTable() {
   </table></div>
 }
 
-function VisitModal({ visit, onClose, onCheckIn, onComplete, onToggleChecklist, onSave }) {
+function ConfirmModal({ title, message, confirmLabel = 'Hapus', onCancel, onConfirm }) {
+  return (
+    <div className="modal-backdrop" onClick={onCancel}><div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="confirm-icon"><Trash2 size={22} /></div>
+      <h2>{title}</h2>
+      <p>{message}</p>
+      <div className="button-row"><button className="btn secondary" onClick={onCancel}>Batal</button><button className="btn danger" onClick={onConfirm}>{confirmLabel}</button></div>
+    </div></div>
+  )
+}
+
+function CaregiverFormModal({ caregiver, onClose, onSave }) {
+  const editing = Boolean(caregiver)
+  const [name, setName] = useState(caregiver?.name || '')
+  const [role, setRole] = useState(caregiver?.role || 'Caregiver')
+  const [specialty, setSpecialty] = useState(caregiver?.specialty || '')
+  const [rating, setRating] = useState(caregiver?.rating || 4.8)
+  const [status, setStatus] = useState(caregiver?.status || 'Siap ditugaskan')
+  const submit = () => {
+    if (!name.trim()) return
+    onSave({
+      id: caregiver?.id || uid(),
+      name: name.trim(),
+      initials: initialsOf(name),
+      role, specialty,
+      rating: Number(rating) || 4.8,
+      visitsToday: caregiver?.visitsToday || 0,
+      completedToday: caregiver?.completedToday || 0,
+      status, tone: STATUS_TONE[status] || 'slate',
+      color: caregiver?.color || ['purple', 'blue', 'orange', 'pink', 'slate'][Math.floor(Math.random() * 5)],
+    })
+  }
+  return (
+    <div className="modal-backdrop" onClick={onClose}><div className="modal form-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-header"><div><p className="eyebrow">{editing ? 'Edit' : 'Tambah'} caregiver</p><h2>{editing ? caregiver.name : 'Caregiver baru'}</h2></div><button className="close-btn" onClick={onClose}><X size={18} /></button></div>
+      <div className="field"><label className="field-label">Nama lengkap</label><input className="text-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Contoh: Rina Maharani" /></div>
+      <div className="form-grid">
+        <div className="field"><label className="field-label">Peran</label><select className="text-input" value={role} onChange={(e) => setRole(e.target.value)}>{['Caregiver', 'Caregiver senior', 'Caregiver pengganti'].map((r) => <option key={r}>{r}</option>)}</select></div>
+        <div className="field"><label className="field-label">Spesialisasi</label><input className="text-input" value={specialty} onChange={(e) => setSpecialty(e.target.value)} placeholder="Contoh: Perawatan lansia" /></div>
+      </div>
+      <div className="form-grid">
+        <div className="field"><label className="field-label">Rating</label><input className="text-input" type="number" step="0.1" min="0" max="5" value={rating} onChange={(e) => setRating(e.target.value)} /></div>
+        <div className="field"><label className="field-label">Status</label><select className="text-input" value={status} onChange={(e) => setStatus(e.target.value)}>{['Bertugas', 'Sedang kunjungan', 'Siap ditugaskan', 'Istirahat'].map((s) => <option key={s}>{s}</option>)}</select></div>
+      </div>
+      <div className="button-row"><button className="btn secondary" onClick={onClose}>Batal</button><button className="btn primary" onClick={submit} disabled={!name.trim()}><Check size={16} /> {editing ? 'Simpan perubahan' : 'Tambah caregiver'}</button></div>
+    </div></div>
+  )
+}
+
+function ClientFormModal({ client, caregivers, onClose, onSave }) {
+  const editing = Boolean(client)
+  const [name, setName] = useState(client?.name || '')
+  const [age, setAge] = useState(client?.age || '')
+  const [gender, setGender] = useState(client?.gender || 'Perempuan')
+  const [city, setCity] = useState(client?.city || '')
+  const [careType, setCareType] = useState(client?.careType || 'Perawatan harian')
+  const [careLevel, setCareLevel] = useState(client?.careLevel || 'Sedang')
+  const [conditions, setConditions] = useState((client?.conditions || []).join(', '))
+  const [caregiver, setCaregiver] = useState(client?.caregiver || caregivers[0]?.name || '')
+  const [status, setStatus] = useState(client?.status || 'Stabil')
+  const submit = () => {
+    if (!name.trim()) return
+    onSave({
+      id: client?.id || uid(),
+      name: name.trim(), initials: initialsOf(name),
+      age: Number(age) || 0, gender, city,
+      careType, careLevel,
+      conditions: conditions.split(',').map((s) => s.trim()).filter(Boolean),
+      caregiver, status, statusTone: status === 'Perlu perhatian' ? 'amber' : 'green',
+      nextVisit: client?.nextVisit || 'Belum dijadwalkan',
+      familyContact: client?.familyContact || { name: '—', relation: '—', phone: '—' },
+      carePlan: client?.carePlan || ['Pantau kondisi harian', 'Dampingi aktivitas ringan'],
+      vitals: client?.vitals || defaultVitals(),
+      visitHistory: client?.visitHistory || [],
+    })
+  }
+  return (
+    <div className="modal-backdrop" onClick={onClose}><div className="modal form-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-header"><div><p className="eyebrow">{editing ? 'Edit' : 'Tambah'} klien</p><h2>{editing ? client.name : 'Klien baru'}</h2></div><button className="close-btn" onClick={onClose}><X size={18} /></button></div>
+      <div className="field"><label className="field-label">Nama lengkap</label><input className="text-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Contoh: Ibu Sari Wulandari" /></div>
+      <div className="form-grid">
+        <div className="field"><label className="field-label">Usia</label><input className="text-input" type="number" value={age} onChange={(e) => setAge(e.target.value)} placeholder="72" /></div>
+        <div className="field"><label className="field-label">Jenis kelamin</label><select className="text-input" value={gender} onChange={(e) => setGender(e.target.value)}>{['Perempuan', 'Laki-laki'].map((g) => <option key={g}>{g}</option>)}</select></div>
+      </div>
+      <div className="form-grid">
+        <div className="field"><label className="field-label">Kota / area</label><input className="text-input" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Contoh: Kebayoran Baru" /></div>
+        <div className="field"><label className="field-label">Layanan</label><input className="text-input" value={careType} onChange={(e) => setCareType(e.target.value)} placeholder="Contoh: Perawatan harian" /></div>
+      </div>
+      <div className="form-grid">
+        <div className="field"><label className="field-label">Tingkat perawatan</label><select className="text-input" value={careLevel} onChange={(e) => setCareLevel(e.target.value)}>{['Rendah', 'Sedang', 'Tinggi'].map((l) => <option key={l}>{l}</option>)}</select></div>
+        <div className="field"><label className="field-label">Status</label><select className="text-input" value={status} onChange={(e) => setStatus(e.target.value)}>{['Stabil', 'Perlu perhatian'].map((s) => <option key={s}>{s}</option>)}</select></div>
+      </div>
+      <div className="field"><label className="field-label">Kondisi (pisahkan dengan koma)</label><input className="text-input" value={conditions} onChange={(e) => setConditions(e.target.value)} placeholder="Contoh: Hipertensi terkontrol, Mobilitas ringan" /></div>
+      <div className="field"><label className="field-label">Caregiver utama</label><select className="text-input" value={caregiver} onChange={(e) => setCaregiver(e.target.value)}>{caregivers.map((c) => <option key={c.id}>{c.name}</option>)}</select></div>
+      <div className="button-row"><button className="btn secondary" onClick={onClose}>Batal</button><button className="btn primary" onClick={submit} disabled={!name.trim()}><Check size={16} /> {editing ? 'Simpan perubahan' : 'Tambah klien'}</button></div>
+    </div></div>
+  )
+}
+
+function VisitFormModal({ visit, clients, caregivers, onClose, onSave }) {
+  const editing = Boolean(visit)
+  const [clientName, setClientName] = useState(visit?.client || clients[0]?.name || '')
+  const [caregiverName, setCaregiverName] = useState(visit?.caregiver || caregivers[0]?.name || '')
+  const [time, setTime] = useState(visit?.time || '09.00 – 11.00')
+  const [type, setType] = useState(visit?.type || 'Pendampingan harian')
+  const submit = () => {
+    if (!clientName.trim() || !caregiverName.trim()) return
+    const client = clients.find((c) => c.name === clientName)
+    onSave({
+      id: visit?.id || uid(),
+      client: clientName, clientId: client?.id || '',
+      initials: initialsOf(clientName), caregiver: caregiverName,
+      time, type,
+      status: visit?.status || 'scheduled',
+      location: visit?.location || client?.city || '—',
+      checklist: visit?.checklist || [],
+    })
+  }
+  return (
+    <div className="modal-backdrop" onClick={onClose}><div className="modal form-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-header"><div><p className="eyebrow">{editing ? 'Edit' : 'Jadwalkan'} kunjungan</p><h2>{editing ? visit.client : 'Kunjungan baru'}</h2></div><button className="close-btn" onClick={onClose}><X size={18} /></button></div>
+      <div className="field"><label className="field-label">Klien</label><select className="text-input" value={clientName} onChange={(e) => setClientName(e.target.value)}>{clients.map((c) => <option key={c.id}>{c.name}</option>)}</select></div>
+      <div className="field"><label className="field-label">Caregiver</label><select className="text-input" value={caregiverName} onChange={(e) => setCaregiverName(e.target.value)}>{caregivers.map((c) => <option key={c.id}>{c.name}</option>)}</select></div>
+      <div className="form-grid">
+        <div className="field"><label className="field-label">Waktu</label><input className="text-input" value={time} onChange={(e) => setTime(e.target.value)} placeholder="08.00 – 10.00" /></div>
+        <div className="field"><label className="field-label">Jenis layanan</label><input className="text-input" value={type} onChange={(e) => setType(e.target.value)} placeholder="Pendampingan harian" /></div>
+      </div>
+      <div className="button-row"><button className="btn secondary" onClick={onClose}>Batal</button><button className="btn primary" onClick={submit} disabled={!clientName.trim() || !caregiverName.trim()}><Check size={16} /> {editing ? 'Simpan perubahan' : 'Jadwalkan'}</button></div>
+    </div></div>
+  )
+}
+
+function VisitModal({ visit, onClose, onCheckIn, onComplete, onToggleChecklist, onSave, onDelete }) {
   const raw = visit.note
   const existing = typeof raw === 'string' ? { text: raw } : (raw && typeof raw === 'object' ? raw : null)
   const [note, setNote] = useState(existing?.text || '')
@@ -534,20 +703,21 @@ function VisitModal({ visit, onClose, onCheckIn, onComplete, onToggleChecklist, 
           </>
         )}
       </>}
+      <button className="text-btn delete-text" onClick={onDelete}><Trash2 size={13} /> Hapus kunjungan</button>
     </div></div>
   )
 }
 
-function ClientDrawer({ client, onClose }) {
+function ClientDrawer({ client, caregivers, onClose, onEdit, onDelete }) {
   return (
     <div className="drawer-backdrop" onClick={onClose}><div className="drawer" onClick={(e) => e.stopPropagation()}>
       <div className="drawer-head"><div><p className="eyebrow">Profil klien</p><h2>{client.name}</h2><span className="drawer-sub">{client.age} tahun · {client.gender} · {client.city}</span></div><button className="close-btn" onClick={onClose}><X size={18} /></button></div>
       <div className="drawer-status-row"><span className={`status-pill ${client.statusTone}`}>{client.status}</span><span className="care-level">Tingkat perawatan: <b>{client.careLevel}</b></span></div>
-      <div className="drawer-section"><h3>Kondisi & kebutuhan</h3><div className="drawer-chips">{client.conditions.map((c) => <span className="chip" key={c}>{c}</span>)}</div><div className="drawer-kv"><span>Alergi</span><b>{client.allergies}</b></div><div className="drawer-kv"><span>Pola makan</span><b>{client.diet}</b></div><div className="drawer-kv"><span>Mobilitas</span><b>{client.mobility}</b></div></div>
+      <div className="drawer-section"><h3>Kondisi & kebutuhan</h3><div className="drawer-chips">{client.conditions.map((c) => <span className="chip" key={c}>{c}</span>)}</div><div className="drawer-kv"><span>Alergi</span><b>{client.allergies || '—'}</b></div><div className="drawer-kv"><span>Pola makan</span><b>{client.diet || '—'}</b></div><div className="drawer-kv"><span>Mobilitas</span><b>{client.mobility || '—'}</b></div></div>
       <div className="drawer-section"><h3>Rencana pendampingan</h3><ul className="care-plan-list">{client.carePlan.map((p) => <li key={p}><Check size={14} /> {p}</li>)}</ul></div>
       <div className="drawer-section"><h3>Kontak keluarga</h3><div className="family-contact-row"><div className="avatar avatar-purple">{client.familyContact.name[0]}</div><div><strong>{client.familyContact.name}</strong><span>{client.familyContact.relation}</span></div><button className="icon-btn small"><Phone size={16} /></button></div></div>
       <div className="drawer-section"><h3>Tanda vital terakhir</h3><div className="last-vitals"><div><span>Sistolik</span><strong>{client.vitals[client.vitals.length - 1].sistolik}</strong></div><div><span>Diastolik</span><strong>{client.vitals[client.vitals.length - 1].diastolik}</strong></div><div><span>Denyut</span><strong>{client.vitals[client.vitals.length - 1].nadi} <small>bpm</small></strong></div></div></div>
-      <div className="drawer-footer"><button className="btn secondary">Edit profil</button><button className="btn primary">Lihat jadwal</button></div>
+      <div className="drawer-footer"><button className="btn secondary" onClick={() => onEdit(client)}><Pencil size={15} /> Edit profil</button><button className="btn danger-outline" onClick={() => onDelete(client)}><Trash2 size={15} /> Hapus</button></div>
     </div></div>
   )
 }
