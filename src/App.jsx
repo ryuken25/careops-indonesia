@@ -483,14 +483,21 @@ function InsidenTable() {
 }
 
 function VisitModal({ visit, onClose, onCheckIn, onComplete, onToggleChecklist, onSave }) {
-  const [note, setNote] = useState(visit.note || '')
-  const [condition, setCondition] = useState('Baik')
-  const [meal, setMeal] = useState('Cukup')
-  const [mood, setMood] = useState('baik')
-  const [eliminasi, setEliminasi] = useState('')
-  const saved = Boolean(visit.note)
+  const raw = visit.note
+  const existing = typeof raw === 'string' ? { text: raw } : (raw && typeof raw === 'object' ? raw : null)
+  const [note, setNote] = useState(existing?.text || '')
+  const [condition, setCondition] = useState(existing?.condition || 'Baik')
+  const [meal, setMeal] = useState(existing?.meal || 'Cukup')
+  const [mood, setMood] = useState(existing?.mood || 'baik')
+  const [eliminasi, setEliminasi] = useState(existing?.eliminasi || '')
+  const [editing, setEditing] = useState(!existing?.text)
+  const [justSaved, setJustSaved] = useState(Boolean(existing?.text))
+  const saved = justSaved
+  const moodObj = MOODS.find((m) => m.key === mood) || MOODS[0]
   const doneCount = (visit.checklist || []).filter((c) => c.done).length
   const total = (visit.checklist || []).length
+  const saveNote = () => { onSave({ text: note, condition, meal, mood, eliminasi }); setJustSaved(true); setEditing(false) }
+  const completeVisit = () => { onComplete(visit); onClose() }
   return (
     <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={(e) => e.stopPropagation()}>
       <div className="modal-header"><div><p className="eyebrow">Detail kunjungan</p><h2>{visit.client}</h2></div><button className="close-btn" onClick={onClose}><X size={18} /></button></div>
@@ -498,16 +505,34 @@ function VisitModal({ visit, onClose, onCheckIn, onComplete, onToggleChecklist, 
       {visit.status === 'scheduled' && <div className="modal-start"><div className="modal-start-icon"><CalendarDays size={23} /></div><div><strong>Kunjungan belum dimulai</strong><p>Mulai check-in saat caregiver tiba di lokasi.</p></div><button className="btn primary" onClick={() => onCheckIn(visit)}>Mulai</button></div>}
       {visit.status !== 'scheduled' && <>
         {total > 0 && <div className="modal-checklist"><div className="modal-section-head"><ListChecks size={15} /><strong>Daftar tugas</strong><b>{doneCount}/{total}</b></div>{visit.checklist.map((c, i) => <button key={c.label} className={`check-item ${c.done ? 'done' : ''}`} onClick={() => onToggleChecklist(i)}><span className="check-box">{c.done && <Check size={12} />}</span><span>{c.label}</span></button>)}</div>}
-        <div className="modal-section-head"><ClipboardList size={15} /><strong>Catatan perawatan</strong></div>
-        <div className="form-grid">
-          <div className="field"><label className="field-label">Kondisi umum</label><div className="seg-group">{[ 'Baik', 'Cukup', 'Perlu perhatian' ].map((c) => <button key={c} className={`seg ${condition === c ? 'active' : ''}`} onClick={() => setCondition(c)}>{c}</button>)}</div></div>
-          <div className="field"><label className="field-label">Asupan makan</label><div className="seg-group">{[ 'Cukup', 'Kurang', 'Menolak' ].map((c) => <button key={c} className={`seg ${meal === c ? 'active' : ''}`} onClick={() => setMeal(c)}>{c}</button>)}</div></div>
-        </div>
-        <div className="field"><label className="field-label">Suasana hati</label><div className="mood-group">{MOODS.map((m) => <button key={m.key} className={`mood ${mood === m.key ? 'active' : ''}`} onClick={() => setMood(m.key)}><span>{m.emoji}</span>{m.label}</button>)}</div></div>
-        <div className="field"><label className="field-label">Eliminasi / catatan lain</label><input className="text-input" value={eliminasi} onChange={(e) => setEliminasi(e.target.value)} placeholder="Contoh: buang air kecil normal, 3x" /></div>
-        <div className="field"><label className="field-label">Catatan perawatan</label><textarea className="note-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Tuliskan kondisi yang terlihat dan kegiatan yang dilakukan..." /></div>
-        <div className="modal-guidance"><Sparkles size={15} /><span>Catatan akan dipakai untuk menyiapkan draf ringkasan pergantian shift dan update keluarga.</span></div>
-        <div className="button-row"><button className="btn secondary" onClick={() => { onSave(note); onClose() }}><Check size={16} /> {saved ? 'Catatan tersimpan' : 'Simpan catatan'}</button>{visit.status === 'checked-in' && <button className="btn primary" onClick={() => onComplete(visit)}><CheckCircle2 size={16} /> Selesaikan</button>}</div>
+        {saved && !editing ? (
+          <div className="note-saved">
+            <div className="modal-section-head"><ClipboardList size={15} /><strong>Catatan tersimpan</strong><span className="saved-badge"><Check size={12} /> Tersimpan</span></div>
+            <div className="note-preview">
+              <div className="preview-grid">
+                <div><span>Kondisi umum</span><b>{condition}</b></div>
+                <div><span>Asupan makan</span><b>{meal}</b></div>
+                <div><span>Suasana hati</span><b>{moodObj.emoji} {moodObj.label}</b></div>
+              </div>
+              {eliminasi && <div className="preview-kv"><span>Eliminasi</span><b>{eliminasi}</b></div>}
+              {note && <p className="preview-note">{note}</p>}
+            </div>
+            <div className="button-row"><button className="btn secondary" onClick={() => setEditing(true)}><FileText size={16} /> Edit catatan</button>{visit.status === 'checked-in' && <button className="btn primary" onClick={completeVisit}><CheckCircle2 size={16} /> Selesaikan</button>}</div>
+          </div>
+        ) : (
+          <>
+            <div className="modal-section-head"><ClipboardList size={15} /><strong>Catatan perawatan</strong></div>
+            <div className="form-grid">
+              <div className="field"><label className="field-label">Kondisi umum</label><div className="seg-group">{[ 'Baik', 'Cukup', 'Perlu perhatian' ].map((c) => <button key={c} className={`seg ${condition === c ? 'active' : ''}`} onClick={() => setCondition(c)}>{c}</button>)}</div></div>
+              <div className="field"><label className="field-label">Asupan makan</label><div className="seg-group">{[ 'Cukup', 'Kurang', 'Menolak' ].map((c) => <button key={c} className={`seg ${meal === c ? 'active' : ''}`} onClick={() => setMeal(c)}>{c}</button>)}</div></div>
+            </div>
+            <div className="field"><label className="field-label">Suasana hati</label><div className="mood-group">{MOODS.map((m) => <button key={m.key} className={`mood ${mood === m.key ? 'active' : ''}`} onClick={() => setMood(m.key)}><span>{m.emoji}</span>{m.label}</button>)}</div></div>
+            <div className="field"><label className="field-label">Eliminasi / catatan lain</label><input className="text-input" value={eliminasi} onChange={(e) => setEliminasi(e.target.value)} placeholder="Contoh: buang air kecil normal, 3x" /></div>
+            <div className="field"><label className="field-label">Catatan perawatan</label><textarea className="note-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Tuliskan kondisi yang terlihat dan kegiatan yang dilakukan..." /></div>
+            <div className="modal-guidance"><Sparkles size={15} /><span>Catatan akan dipakai untuk menyiapkan draf ringkasan pergantian shift dan update keluarga.</span></div>
+            <div className="button-row"><button className="btn primary" onClick={saveNote}><Check size={16} /> Simpan catatan</button>{visit.status === 'checked-in' && <button className="btn secondary" onClick={completeVisit}><CheckCircle2 size={16} /> Selesaikan</button>}</div>
+          </>
+        )}
       </>}
     </div></div>
   )
