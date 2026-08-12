@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import {
   Activity, AlertTriangle, ArrowDown, ArrowRight, ArrowUp, BarChart3, Bell,
   CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck,
@@ -21,22 +22,19 @@ const MOODS = [
 ]
 
 function App() {
-  const [role, setRole] = useState('Koordinator')
-  const [active, setActive] = useState('Ringkasan')
   const [visits, setVisits] = useState(() => {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || initialVisits } catch { return initialVisits }
   })
   const [selectedVisit, setSelectedVisit] = useState(null)
   const [selectedClient, setSelectedClient] = useState(null)
-  const [search, setSearch] = useState('')
-  const [clientFilter, setClientFilter] = useState('Semua')
   const [toast, setToast] = useState('')
   const [familyUpdate, setFamilyUpdate] = useState(INITIAL_FAMILY_UPDATE)
+  const location = useLocation()
+  const isCoordinator = location.pathname.startsWith('/koordinator')
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(visits)) }, [visits])
 
   const notify = (message) => { setToast(message); window.setTimeout(() => setToast(''), 2600) }
-
   const updateVisit = (id, patch) => setVisits((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)))
 
   const setStatus = (visit, status) => {
@@ -55,7 +53,6 @@ function App() {
     setFamilyUpdate({ status: 'draft', text: 'Bapak Hendra menjalani aktivitas pagi dengan baik. Ia mengikuti latihan gerak ringan dan makan dengan cukup. Tidak ada keluhan baru yang dicatat selama kunjungan.' })
     notify('Draf update keluarga dibuat. Silakan tinjau sebelum disetujui.')
   }
-
   const approveUpdate = () => { setFamilyUpdate((u) => ({ ...u, status: 'approved' })); notify('Update disetujui dan tampil di halaman keluarga.') }
 
   const exportReport = () => {
@@ -67,29 +64,25 @@ function App() {
     notify('Laporan harian berhasil diunduh.')
   }
 
-  const filteredClients = useMemo(() => {
-    let list = clientSeed.filter((c) => `${c.name} ${c.city} ${c.careType}`.toLowerCase().includes(search.toLowerCase()))
-    if (clientFilter === 'Perlu perhatian') list = list.filter((c) => c.statusTone === 'amber')
-    if (clientFilter === 'Stabil') list = list.filter((c) => c.statusTone === 'green')
-    return list
-  }, [search, clientFilter])
-
-  const renderPage = () => {
-    if (role === 'Caregiver') return <CaregiverPage visits={visits} onOpen={(v) => setSelectedVisit(v)} onCheckIn={(v) => setStatus(v, 'checked-in')} onComplete={(v) => setStatus(v, 'completed')} onToggleChecklist={toggleChecklist} />
-    if (role === 'Keluarga') return <FamilyPage update={familyUpdate} client={clientSeed.find((c) => c.id === 'c2')} />
-    if (active === 'Klien') return <ClientsPage clients={filteredClients} search={search} setSearch={setSearch} filter={clientFilter} setFilter={setClientFilter} onOpen={setSelectedClient} />
-    if (active === 'Caregiver') return <CaregiversPage />
-    if (active === 'Kunjungan') return <VisitsPage visits={visits} onOpen={setSelectedVisit} onMove={setStatus} />
-    if (active === 'Catatan & Insiden') return <NotesPage update={familyUpdate} generateDraft={generateDraft} approveUpdate={approveUpdate} exportReport={exportReport} />
-    return <DashboardPage visits={visits} onOpen={setSelectedVisit} onCheckIn={(v) => setStatus(v, 'checked-in')} />
-  }
-
   return (
     <div className="app-shell">
-      <Sidebar active={active} setActive={setActive} role={role} />
-      <main className="main-content">
-        <Topbar role={role} active={active} setRole={setRole} setActive={setActive} />
-        <div className="page-wrap">{renderPage()}</div>
+      {isCoordinator && <Sidebar />}
+      <main className={`main-content ${isCoordinator ? '' : 'no-sidebar'}`}>
+        <Topbar />
+        <div className="page-wrap">
+          <Routes>
+            <Route path="/" element={<Navigate to="/koordinator" replace />} />
+            <Route path="/koordinator" element={<DashboardPage visits={visits} onOpen={setSelectedVisit} onCheckIn={(v) => setStatus(v, 'checked-in')} />} />
+            <Route path="/koordinator/kunjungan" element={<VisitsPage visits={visits} onOpen={setSelectedVisit} onMove={setStatus} />} />
+            <Route path="/koordinator/klien" element={<ClientsPage onOpen={setSelectedClient} />} />
+            <Route path="/koordinator/caregiver" element={<CaregiversPage />} />
+            <Route path="/koordinator/catatan" element={<NotesPage update={familyUpdate} generateDraft={generateDraft} approveUpdate={approveUpdate} exportReport={exportReport} />} />
+            <Route path="/caregiver" element={<CaregiverPage visits={visits} onOpen={setSelectedVisit} onCheckIn={(v) => setStatus(v, 'checked-in')} onComplete={(v) => setStatus(v, 'completed')} onToggleChecklist={toggleChecklist} />} />
+            <Route path="/keluarga" element={<Navigate to="/keluarga/c2" replace />} />
+            <Route path="/keluarga/:clientId" element={<FamilyRoute update={familyUpdate} />} />
+            <Route path="*" element={<Navigate to="/koordinator" replace />} />
+          </Routes>
+        </div>
       </main>
       {selectedVisit && <VisitModal visit={selectedVisit} onClose={() => setSelectedVisit(null)} onCheckIn={() => setStatus(selectedVisit, 'checked-in')} onComplete={() => setStatus(selectedVisit, 'completed')} onToggleChecklist={(i) => toggleChecklist(selectedVisit.id, i)} onSave={(note) => { updateVisit(selectedVisit.id, { note }); notify('Catatan perawatan tersimpan.') }} />}
       {selectedClient && <ClientDrawer client={selectedClient} onClose={() => setSelectedClient(null)} />}
@@ -98,47 +91,56 @@ function App() {
   )
 }
 
-function Sidebar({ active, setActive, role }) {
+function Sidebar() {
+  const location = useLocation()
+  const items = [
+    { icon: LayoutDashboard, label: 'Ringkasan', to: '/koordinator' },
+    { icon: CalendarDays, label: 'Kunjungan', to: '/koordinator/kunjungan', count: '4' },
+    { icon: UsersRound, label: 'Klien', to: '/koordinator/klien' },
+    { icon: UserRound, label: 'Caregiver', to: '/koordinator/caregiver' },
+    { icon: NotebookPen, label: 'Catatan & Insiden', to: '/koordinator/catatan', count: '2' },
+  ]
   return (
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark"><HeartPulse size={19} /></div><div><strong>careops</strong><span>INDONESIA</span></div></div>
+      <Link to="/koordinator" className="brand"><div className="brand-mark"><HeartPulse size={19} /></div><div><strong>careops</strong><span>INDONESIA</span></div></Link>
       <div className="demo-badge"><span className="pulse-dot" /> Ruang demo</div>
       <nav className="nav-list">
         <p className="nav-label">Workspace</p>
-        <NavItem icon={LayoutDashboard} label="Ringkasan" active={active === 'Ringkasan'} onClick={() => setActive('Ringkasan')} />
-        <NavItem icon={CalendarDays} label="Kunjungan" active={active === 'Kunjungan'} onClick={() => setActive('Kunjungan')} count="4" />
-        <NavItem icon={UsersRound} label="Klien" active={active === 'Klien'} onClick={() => setActive('Klien')} />
-        <NavItem icon={UserRound} label="Caregiver" active={active === 'Caregiver'} onClick={() => setActive('Caregiver')} />
-        <p className="nav-label section-gap">Catatan</p>
-        <NavItem icon={NotebookPen} label="Catatan & Insiden" active={active === 'Catatan & Insiden'} onClick={() => setActive('Catatan & Insiden')} count="2" />
+        {items.map((item) => {
+          const active = location.pathname === item.to
+          return <Link key={item.to} to={item.to} className={`nav-item ${active ? 'active' : ''}`}><item.icon size={18} /><span>{item.label}</span>{item.count && <b>{item.count}</b>}</Link>
+        })}
       </nav>
       <div className="sidebar-bottom">
         <div className="help-card"><div className="help-icon"><ShieldCheck size={18} /></div><div><strong>Data simulasi</strong><p>Ruang ini menggunakan data contoh, bukan data pasien nyata.</p></div></div>
-        <div className="profile-mini"><div className="avatar avatar-purple">AN</div><div><strong>Andini Nurhaliza</strong><span>{role === 'Koordinator' ? 'Koordinator' : role === 'Caregiver' ? 'Dewi Lestari' : 'Keluarga klien'}</span></div><MoreHorizontal size={18} className="muted-icon" /></div>
+        <div className="profile-mini"><div className="avatar avatar-purple">AN</div><div><strong>Andini Nurhaliza</strong><span>Koordinator</span></div><MoreHorizontal size={18} className="muted-icon" /></div>
       </div>
     </aside>
   )
 }
 
-function NavItem({ icon: Icon, label, active, onClick, count }) { return <button className={`nav-item ${active ? 'active' : ''}`} onClick={onClick}><Icon size={18} /><span>{label}</span>{count && <b>{count}</b>}</button> }
-
-function Topbar({ role, active, setRole, setActive }) {
+function Topbar() {
+  const location = useLocation()
+  const roles = [
+    { label: 'Koordinator', to: '/koordinator' },
+    { label: 'Caregiver', to: '/caregiver' },
+    { label: 'Keluarga', to: '/keluarga/c2' },
+  ]
+  const current = location.pathname.startsWith('/koordinator') ? 'Koordinator' : location.pathname.startsWith('/caregiver') ? 'Caregiver' : 'Keluarga'
   return (
     <header className="topbar">
-      <div className="mobile-brand"><Menu size={21} /><div className="brand-mark"><HeartPulse size={17} /></div><strong>careops</strong></div>
-      <div className="breadcrumb"><span>Ruang demo</span><ArrowRight size={14} /><strong>{role === 'Caregiver' ? 'Tampilan caregiver' : role === 'Keluarga' ? 'Update keluarga' : active}</strong></div>
+      <div className="mobile-brand"><Link to="/koordinator" className="brand-mark"><HeartPulse size={17} /></Link><Link to="/koordinator"><strong>careops</strong></Link></div>
+      <div className="breadcrumb"><span>Ruang demo</span><ArrowRight size={14} /><strong>{current}</strong></div>
       <div className="top-actions">
         <button className="icon-btn" aria-label="Notifikasi"><Bell size={18} /><i /></button>
-        <div className="role-switch"><span>Lihat sebagai</span><select value={role} onChange={(e) => { setRole(e.target.value); setActive('Ringkasan') }}><option>Koordinator</option><option>Caregiver</option><option>Keluarga</option></select><ChevronDown size={14} /></div>
+        <div className="role-nav">{roles.map((r) => <Link key={r.to} to={r.to} className={current === r.label ? 'active' : ''}>{r.label}</Link>)}</div>
       </div>
     </header>
   )
 }
 
 function PageHeader({ eyebrow, title, description, action, children }) { return <div className="page-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{description && <p className="page-description">{description}</p>}</div><div className="header-actions">{children}{action && <button className="btn primary"><Plus size={17} /> {action}</button>}</div></div> }
-
 function PanelTitle({ title, action, hint }) { return <div className="panel-title"><h2>{title}</h2>{hint && <span className="panel-hint">{hint}</span>}{action && <button className="text-btn">{action}<ArrowRight size={14} /></button>}</div> }
-
 function Metric({ icon: Icon, label, value, foot, tone, delta }) { return <div className="metric-card"><div className={`metric-icon ${tone}`}><Icon size={19} /></div><span>{label}</span><strong>{value}</strong><small>{foot}</small>{delta && <span className={`metric-delta ${delta > 0 ? 'up' : 'down'}`}>{delta > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />} {Math.abs(delta)}%</span>}</div> }
 
 function DashboardPage({ visits, onOpen, onCheckIn }) {
@@ -148,7 +150,7 @@ function DashboardPage({ visits, onOpen, onCheckIn }) {
   const activeVisit = visits.find((v) => v.status === 'checked-in')
   return <>
     <PageHeader eyebrow="Selasa, 18 Agustus 2026" title="Selamat pagi, Andini" description="Berikut gambaran operasional kunjungan hari ini." action="Jadwalkan kunjungan" />
-    <div className="notice"><div className="notice-symbol"><ShieldCheck size={18} /></div><div><strong>Ruang demo CareOps Indonesia</strong><span>Gunakan pergantian peran di kanan atas untuk mencoba alur coordinator, caregiver, dan keluarga.</span></div><button aria-label="Tutup"><X size={16} /></button></div>
+    <div className="notice"><div className="notice-symbol"><ShieldCheck size={18} /></div><div><strong>Ruang demo CareOps Indonesia</strong><span>Gunakan navigasi peran di kanan atas untuk melihat sisi coordinator, caregiver, dan keluarga.</span></div><button aria-label="Tutup"><X size={16} /></button></div>
     <div className="metrics-grid">
       <Metric icon={CalendarDays} label="Kunjungan hari ini" value={String(visits.length)} foot={`${completed} selesai · ${ongoing} berlangsung · ${scheduled} terjadwal`} tone="blue" delta={8} />
       <Metric icon={CheckCircle2} label="Tingkat penyelesaian" value={`${Math.round((completed / Math.max(1, visits.length)) * 100)}%`} foot="Dari seluruh kunjungan" tone="green" delta={4} />
@@ -156,39 +158,16 @@ function DashboardPage({ visits, onOpen, onCheckIn }) {
       <Metric icon={Clock3} label="Kelengkapan catatan" value="86%" foot="Naik 8% dari kemarin" tone="purple" delta={8} />
     </div>
     <div className="content-grid two-thirds">
-      <section className="panel">
-        <PanelTitle title="Tren kunjungan" hint="7 hari terakhir" action="Minggu ini" />
-        <TrendChart data={weeklyTrend} />
-        <div className="trend-legend"><span><i style={{ background: '#3666f6' }} />Kunjungan</span><span><i style={{ background: '#50b89c' }} />Selesai</span></div>
-      </section>
-      <section className="panel">
-        <PanelTitle title="Status kunjungan" hint="7 hari terakhir" />
-        <StatusDonut data={statusDistribution} />
-        <div className="donut-legend">{statusDistribution.map((s) => <span key={s.name}><i style={{ background: s.color }} />{s.name}<b>{s.value}</b></span>)}</div>
-      </section>
+      <section className="panel"><PanelTitle title="Tren kunjungan" hint="7 hari terakhir" action="Minggu ini" /><TrendChart data={weeklyTrend} /><div className="trend-legend"><span><i style={{ background: '#3666f6' }} />Kunjungan</span><span><i style={{ background: '#50b89c' }} />Selesai</span></div></section>
+      <section className="panel"><PanelTitle title="Status kunjungan" hint="7 hari terakhir" /><StatusDonut data={statusDistribution} /><div className="donut-legend">{statusDistribution.map((s) => <span key={s.name}><i style={{ background: s.color }} />{s.name}<b>{s.value}</b></span>)}</div></section>
     </div>
     <div className="content-grid two-thirds bottom-grid">
-      <section className="panel schedule-panel">
-        <PanelTitle title="Jadwal hari ini" action="Lihat semua" />
-        <div className="schedule-list">{visits.map((visit) => <VisitRow key={visit.id} visit={visit} onOpen={onOpen} onCheckIn={onCheckIn} />)}</div>
-      </section>
-      <section className="panel">
-        <PanelTitle title="Beban caregiver" hint="Minggu ini" />
-        <LoadBar data={caregiverLoad} />
-      </section>
+      <section className="panel schedule-panel"><PanelTitle title="Jadwal hari ini" action="Lihat semua" /><div className="schedule-list">{visits.map((visit) => <VisitRow key={visit.id} visit={visit} onOpen={onOpen} onCheckIn={onCheckIn} />)}</div></section>
+      <section className="panel"><PanelTitle title="Beban caregiver" hint="Minggu ini" /><LoadBar data={caregiverLoad} /></section>
     </div>
     <div className="content-grid two-thirds bottom-grid">
-      <section className="panel">
-        <PanelTitle title="Perlu perhatian" action="Semua catatan" />
-        <div className="incident-list">{incidentSeed.slice(0, 3).map((item) => <Incident key={item.id} {...item} />)}</div>
-      </section>
-      <section className="panel care-quality">
-        <PanelTitle title="Kualitas pendampingan" action="Minggu ini" />
-        <div className="quality-score"><div className="score-ring"><strong>94</strong><span>/100</span></div><div><strong className="score-label">Baik sekali</strong><p>Indikator operasional stabil. Ada ruang perbaikan pada kelengkapan catatan kunjungan pagi.</p></div></div>
-        <div className="progress-row"><span>Kunjungan tepat waktu</span><strong>96%</strong><div className="progress"><i style={{ width: '96%' }} /></div></div>
-        <div className="progress-row"><span>Catatan lengkap</span><strong>86%</strong><div className="progress"><i style={{ width: '86%' }} /></div></div>
-        <div className="progress-row"><span>Kepuasan keluarga</span><strong>4.8</strong><div className="progress"><i style={{ width: '96%' }} /></div></div>
-      </section>
+      <section className="panel"><PanelTitle title="Perlu perhatian" action="Semua catatan" /><div className="incident-list">{incidentSeed.slice(0, 3).map((item) => <Incident key={item.id} {...item} />)}</div></section>
+      <section className="panel care-quality"><PanelTitle title="Kualitas pendampingan" action="Minggu ini" /><div className="quality-score"><div className="score-ring"><strong>94</strong><span>/100</span></div><div><strong className="score-label">Baik sekali</strong><p>Indikator operasional stabil. Ada ruang perbaikan pada kelengkapan catatan kunjungan pagi.</p></div></div><div className="progress-row"><span>Kunjungan tepat waktu</span><strong>96%</strong><div className="progress"><i style={{ width: '96%' }} /></div></div><div className="progress-row"><span>Catatan lengkap</span><strong>86%</strong><div className="progress"><i style={{ width: '86%' }} /></div></div><div className="progress-row"><span>Kepuasan keluarga</span><strong>4.8</strong><div className="progress"><i style={{ width: '96%' }} /></div></div></section>
     </div>
     {activeVisit && <div className="flow-hint"><div className="flow-icon"><Sparkles size={19} /></div><div><strong>Alur contoh sedang berlangsung</strong><span>{activeVisit.caregiver} sedang mencatat kunjungan {activeVisit.client}. Buka menu <b>Catatan & Insiden</b> untuk meninjau draf update keluarga.</span></div><ArrowRight size={18} /></div>}
   </>
@@ -214,15 +193,18 @@ function Incident({ title, detail, time, severity }) {
   return <div className="incident"><div className={`incident-icon ${tone}`}><AlertTriangle size={17} /></div><div><strong>{title}</strong><span>{detail}</span><small>{time}</small></div><span className={`sev-pill ${tone}`}>{label}</span></div>
 }
 
-function ClientsPage({ clients, search, setSearch, filter, setFilter, onOpen }) {
+function ClientsPage({ onOpen }) {
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState('Semua')
+  const filtered = clientSeed.filter((c) => `${c.name} ${c.city} ${c.careType}`.toLowerCase().includes(search.toLowerCase())).filter((c) => filter === 'Semua' ? true : filter === 'Perlu perhatian' ? c.statusTone === 'amber' : c.statusTone === 'green')
   return <>
     <PageHeader eyebrow="Data klien" title="Klien" description="Daftar klien beserta rencana dan status pendampingan." action="Tambah klien" />
     <div className="toolbar">
       <div className="search-box"><Search size={17} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari nama, lokasi, atau layanan..." /></div>
-      <div className="filter-pills">{[ 'Semua', 'Perlu perhatian', 'Stabil' ].map((f) => <button key={f} className={`filter-pill ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>{f}</button>)}</div>
+      <div className="filter-pills">{['Semua', 'Perlu perhatian', 'Stabil'].map((f) => <button key={f} className={`filter-pill ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>{f}</button>)}</div>
     </div>
-    <div className="client-cards">{clients.map((client) => <ClientCard key={client.id} client={client} onOpen={() => onOpen(client)} />)}</div>
-    {clients.length === 0 && <div className="empty-state"><Search size={22} /><p>Tidak ada klien yang cocok dengan pencarian.</p></div>}
+    <div className="client-cards">{filtered.map((client) => <ClientCard key={client.id} client={client} onOpen={() => onOpen(client)} />)}</div>
+    {filtered.length === 0 && <div className="empty-state"><Search size={22} /><p>Tidak ada klien yang cocok dengan pencarian.</p></div>}
   </>
 }
 
@@ -328,7 +310,6 @@ function CaregiverPage({ visits, onOpen, onCheckIn, onComplete, onToggleChecklis
   const done = own.filter((v) => v.status === 'completed').length
   const progress = own.length ? Math.round((done / own.length) * 100) : 0
   return <div className="caregiver-view">
-    <div className="caregiver-mobile-header"><div className="brand-mark"><HeartPulse size={18} /></div><strong>careops</strong><Bell size={19} /></div>
     <div className="caregiver-greeting"><p className="eyebrow">Selasa, 18 Agustus 2026</p><h1>Selamat pagi, Dewi</h1><p>Siap mendampingi {own.length} kunjungan hari ini?</p></div>
     <div className="caregiver-stat-banner"><div><span>Kunjungan hari ini</span><strong>{own.length}</strong></div><div className="banner-divider" /><div><span>Selesai</span><strong>{done}</strong></div><div className="banner-progress"><i style={{ width: `${progress}%` }} /></div></div>
     <div className="mobile-section-title"><h2>Tugas hari ini</h2><span>{own.length} kunjungan</span></div>
@@ -357,18 +338,20 @@ function CaregiverPage({ visits, onOpen, onCheckIn, onComplete, onToggleChecklis
   </div>
 }
 
-function FamilyPage({ update, client }) {
-  const lastVitals = client.vitals[client.vitals.length - 1]
-  return <div className="family-view">
-    <div className="family-top"><div className="brand"><div className="brand-mark"><HeartPulse size={19} /></div><div><strong>careops</strong><span>INDONESIA</span></div></div><button className="icon-btn"><Bell size={18} /></button></div>
-    <div className="family-hero"><p className="eyebrow">Ruang keluarga · Demo</p><h1>Update pendampingan<br /><em>{client.name}</em></h1><p>Informasi ringkas dari tim pendamping hari ini.</p></div>
+function FamilyRoute({ update }) {
+  const { clientId } = useParams()
+  const client = clientSeed.find((c) => c.id === clientId) || clientSeed[1]
+  return <FamilyPage update={update} client={client} />
+}
 
+function FamilyPage({ update, client }) {
+  return <div className="family-view">
+    <div className="family-hero"><p className="eyebrow">Ruang keluarga · Demo</p><h1>Update pendampingan<br /><em>{client.name}</em></h1><p>Informasi ringkas dari tim pendamping hari ini.</p></div>
     <div className="family-card">
       <div className="family-card-top"><div className="avatar avatar-blue">{client.initials}</div><div><strong>{client.name}</strong><span>Pembaruan terakhir · Hari ini, 12.15</span></div><span className="approved-check"><Check size={14} /></span></div>
       <div className="family-update-content"><div className="quote-mark">“</div><p>{update.status === 'approved' ? update.text : 'Update hari ini sedang ditinjau oleh koordinator. Informasi akan tampil setelah disetujui.'}</p></div>
       <div className="family-card-footer"><span><CheckCircle2 size={15} /> {update.status === 'approved' ? 'Disetujui koordinator' : 'Menunggu persetujuan'}</span><span>Hari ini</span></div>
     </div>
-
     <div className="family-grid">
       <section className="family-panel">
         <div className="family-panel-head"><h3><Activity size={16} /> Tanda vital</h3><span>7 hari terakhir</span></div>
@@ -381,10 +364,9 @@ function FamilyPage({ update, client }) {
         <div className="family-panel-head"><h3><CalendarDays size={16} /> Jadwal mendatang</h3></div>
         <div className="family-schedule"><div className="fs-date"><strong>Besok</strong><span>Rab, 19 Agustus</span></div><div className="fs-item"><Clock3 size={15} /><div><strong>08.00 – 10.00</strong><span>{client.careType} · {client.caregiver}</span></div></div></div>
         <div className="family-schedule"><div className="fs-date"><strong>Kamis</strong><span>20 Agustus</span></div><div className="fs-item"><Clock3 size={15} /><div><strong>08.00 – 10.00</strong><span>{client.careType} · {client.caregiver}</span></div></div></div>
-        <div className="family-team"><div className="family-panel-head"><h3><UserRound size={16} /> Tim pendamping</h3></div><div className="team-row"><div className="avatar avatar-purple">{client.initials[0] + client.initials[1]}</div><div><strong>{client.caregiver}</strong><span>Caregiver utama</span></div><span className="team-ok"><Check size={13} /></span></div></div>
+        <div className="family-team"><div className="family-panel-head"><h3><UserRound size={16} /> Tim pendamping</h3></div><div className="team-row"><div className="avatar avatar-purple">{client.initials}</div><div><strong>{client.caregiver}</strong><span>Caregiver utama</span></div><span className="team-ok"><Check size={13} /></span></div></div>
       </section>
     </div>
-
     <div className="family-grid">
       <section className="family-panel">
         <div className="family-panel-head"><h3><ListChecks size={16} /> Rencana pendampingan</h3></div>
@@ -392,12 +374,9 @@ function FamilyPage({ update, client }) {
       </section>
       <section className="family-panel">
         <div className="family-panel-head"><h3><Clock3 size={16} /> Riwayat pendampingan</h3></div>
-        <div className="timeline">
-          {client.visitHistory.map((h) => <div className="tl-item" key={h.date}><div className="tl-dot" /><div className="tl-body"><div className="tl-top"><strong>{h.date}</strong><span>{h.caregiver}</span></div><p>{h.note}</p></div></div>)}
-        </div>
+        <div className="timeline">{client.visitHistory.map((h) => <div className="tl-item" key={h.date}><div className="tl-dot" /><div className="tl-body"><div className="tl-top"><strong>{h.date}</strong><span>{h.caregiver}</span></div><p>{h.note}</p></div></div>)}</div>
       </section>
     </div>
-
     <div className="family-contact"><MessageCircle size={18} /><div><strong>Butuh bantuan?</strong><span>Hubungi {client.familyContact.name} atau koordinator CareOps untuk pertanyaan seputar jadwal dan pendampingan.</span></div><ArrowRight size={17} /></div>
     <p className="demo-footnote"><ShieldCheck size={14} /> Tampilan demo menggunakan data simulasi. Bukan informasi medis atau diagnosis.</p>
   </div>
