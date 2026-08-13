@@ -22,6 +22,7 @@ const MOODS = [
 ]
 const STORAGE_CLIENTS = 'careops-clients'
 const STORAGE_CAREGIVERS = 'careops-caregivers'
+const STORAGE_INCIDENTS = 'careops-incidents'
 const uid = () => 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 const initialsOf = (name) => (name || '').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()
 const load = (key, fallback) => { try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v } catch { return fallback } }
@@ -38,6 +39,8 @@ function App() {
   const [clientForm, setClientForm] = useState(null)
   const [visitForm, setVisitForm] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [incidents, setIncidents] = useState(() => load(STORAGE_INCIDENTS, incidentSeed))
+  const [noticeVisible, setNoticeVisible] = useState(true)
   const [toast, setToast] = useState('')
   const [familyUpdate, setFamilyUpdate] = useState(INITIAL_FAMILY_UPDATE)
   const location = useLocation()
@@ -46,6 +49,7 @@ function App() {
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(visits)) }, [visits])
   useEffect(() => { localStorage.setItem(STORAGE_CLIENTS, JSON.stringify(clients)) }, [clients])
   useEffect(() => { localStorage.setItem(STORAGE_CAREGIVERS, JSON.stringify(caregivers)) }, [caregivers])
+  useEffect(() => { localStorage.setItem(STORAGE_INCIDENTS, JSON.stringify(incidents)) }, [incidents])
 
   const notify = (message) => { setToast(message); window.setTimeout(() => setToast(''), 2600) }
   const updateVisit = (id, patch) => setVisits((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)))
@@ -69,6 +73,7 @@ function App() {
   const saveVisit = (data) => { upsert(setVisits)(data); setVisitForm(null); notify('Kunjungan disimpan.') }
 
   const askDelete = (kind, id, name) => setDeleteTarget({ kind, id, name })
+  const resolveIncident = (id) => { setIncidents((list) => list.map((i) => (i.id === id ? { ...i, status: 'resolved' } : i))); notify('Insiden ditandai selesai.') }
   const confirmDelete = () => {
     if (!deleteTarget) return
     const { kind, id, name } = deleteTarget
@@ -100,15 +105,15 @@ function App() {
     <div className="app-shell">
       {isCoordinator && <Sidebar visitCount={visits.filter((v) => v.status === 'scheduled').length} />}
       <main className={`main-content ${isCoordinator ? '' : 'no-sidebar'}`}>
-        <Topbar />
+        <Topbar incidents={incidents} visits={visits} />
         <div className="page-wrap">
           <Routes>
             <Route path="/" element={<Navigate to="/koordinator" replace />} />
-            <Route path="/koordinator" element={<DashboardPage visits={visits} onOpen={setSelectedVisit} onCheckIn={(v) => setStatus(v, 'checked-in')} onSchedule={() => setVisitForm({ visit: null })} />} />
+            <Route path="/koordinator" element={<DashboardPage visits={visits} incidents={incidents} noticeVisible={noticeVisible} onDismissNotice={() => setNoticeVisible(false)} onResolveIncident={resolveIncident} onOpen={setSelectedVisit} onCheckIn={(v) => setStatus(v, 'checked-in')} onSchedule={() => setVisitForm({ visit: null })} />} />
             <Route path="/koordinator/kunjungan" element={<VisitsPage visits={visits} onOpen={setSelectedVisit} onMove={setStatus} onAdd={() => setVisitForm({ visit: null })} onDelete={(v) => askDelete('visit', v.id, v.client)} />} />
             <Route path="/koordinator/klien" element={<ClientsPage clients={clients} onOpen={setSelectedClient} onAdd={() => setClientForm({ client: null })} />} />
             <Route path="/koordinator/caregiver" element={<CaregiversPage caregivers={caregivers} onAdd={() => setCaregiverForm({ caregiver: null })} onEdit={(c) => setCaregiverForm({ caregiver: c })} onDelete={(c) => askDelete('caregiver', c.id, c.name)} />} />
-            <Route path="/koordinator/catatan" element={<NotesPage update={familyUpdate} generateDraft={generateDraft} approveUpdate={approveUpdate} exportReport={exportReport} onOpen={openIncomplete} />} />
+            <Route path="/koordinator/catatan" element={<NotesPage update={familyUpdate} visits={visits} incidents={incidents} onResolveIncident={resolveIncident} generateDraft={generateDraft} approveUpdate={approveUpdate} exportReport={exportReport} onOpen={setSelectedVisit} />} />
             <Route path="/koordinator/database" element={<DatabasePage visits={visits} clients={clients} caregivers={caregivers} />} />
             <Route path="/caregiver" element={<CaregiverPage visits={visits} onOpen={setSelectedVisit} onCheckIn={(v) => setStatus(v, 'checked-in')} onComplete={(v) => setStatus(v, 'completed')} onToggleChecklist={toggleChecklist} />} />
             <Route path="/keluarga" element={<Navigate to="/keluarga/c2" replace />} />
@@ -157,20 +162,34 @@ function Sidebar({ visitCount }) {
   )
 }
 
-function Topbar() {
+function Topbar({ incidents, visits }) {
   const location = useLocation()
+  const [notifOpen, setNotifOpen] = useState(false)
   const roles = [
     { label: 'Koordinator', to: '/koordinator' },
     { label: 'Caregiver', to: '/caregiver' },
     { label: 'Keluarga', to: '/keluarga/c2' },
   ]
   const current = location.pathname.startsWith('/koordinator') ? 'Koordinator' : location.pathname.startsWith('/caregiver') ? 'Caregiver' : 'Keluarga'
+  const openIncidents = incidents.filter((i) => i.status !== 'resolved')
+  const incompleteVisits = visits.filter((v) => v.status !== 'completed' && !(v.note && (typeof v.note === 'string' ? v.note : v.note?.text)))
+  const notifCount = openIncidents.length + incompleteVisits.length
   return (
     <header className="topbar">
       <div className="mobile-brand"><Link to="/koordinator" className="brand-mark"><HeartPulse size={17} /></Link><Link to="/koordinator"><strong>careops</strong></Link></div>
       <div className="breadcrumb"><span>Ruang demo</span><ArrowRight size={14} /><strong>{current}</strong></div>
       <div className="top-actions">
-        <button className="icon-btn" aria-label="Notifikasi"><Bell size={18} /><i /></button>
+        <div className="notif-wrap">
+          <button className="icon-btn" aria-label="Notifikasi" onClick={() => setNotifOpen((o) => !o)}><Bell size={18} />{notifCount > 0 && <i>{notifCount}</i>}</button>
+          {notifOpen && (
+            <div className="notif-dropdown" onClick={(e) => e.stopPropagation()}>
+              <div className="notif-head"><strong>Notifikasi</strong><span>{notifCount} perlu perhatian</span></div>
+              {openIncidents.slice(0, 3).map((i) => <Link key={i.id} to="/koordinator/catatan" className="notif-item" onClick={() => setNotifOpen(false)}><div className={`incident-icon ${i.severity === 'tinggi' ? 'red' : i.severity === 'sedang' ? 'amber' : 'blue'}`}><AlertTriangle size={14} /></div><div><strong>{i.title}</strong><span>{i.client} · {i.category}</span></div></Link>)}
+              {incompleteVisits.slice(0, 3).map((v) => <Link key={v.id} to="/koordinator/catatan" className="notif-item" onClick={() => setNotifOpen(false)}><div className="incident-icon amber"><Clock3 size={14} /></div><div><strong>Catatan belum lengkap</strong><span>{v.client} · {v.caregiver}</span></div></Link>)}
+              {notifCount === 0 && <div className="notif-empty">Tidak ada notifikasi baru.</div>}
+            </div>
+          )}
+        </div>
         <div className="role-nav">{roles.map((r) => <Link key={r.to} to={r.to} className={current === r.label ? 'active' : ''}>{r.label}</Link>)}</div>
       </div>
     </header>
@@ -181,14 +200,15 @@ function PageHeader({ eyebrow, title, description, action, onAction, children })
 function PanelTitle({ title, action, hint, actionTo, onAction }) { return <div className="panel-title"><h2>{title}</h2>{hint && <span className="panel-hint">{hint}</span>}{action && (actionTo ? <Link to={actionTo} className="text-btn">{action}<ArrowRight size={14} /></Link> : <button className="text-btn" onClick={onAction}>{action}<ArrowRight size={14} /></button>)}</div> }
 function Metric({ icon: Icon, label, value, foot, tone, delta }) { return <div className="metric-card"><div className={`metric-icon ${tone}`}><Icon size={19} /></div><span>{label}</span><strong>{value}</strong><small>{foot}</small>{delta && <span className={`metric-delta ${delta > 0 ? 'up' : 'down'}`}>{delta > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />} {Math.abs(delta)}%</span>}</div> }
 
-function DashboardPage({ visits, onOpen, onCheckIn, onSchedule }) {
+function DashboardPage({ visits, incidents, noticeVisible, onDismissNotice, onResolveIncident, onOpen, onCheckIn, onSchedule }) {
   const completed = visits.filter((v) => v.status === 'completed').length
   const ongoing = visits.filter((v) => v.status === 'checked-in').length
   const scheduled = visits.filter((v) => v.status === 'scheduled').length
   const activeVisit = visits.find((v) => v.status === 'checked-in')
+  const openIncidents = incidents.filter((i) => i.status !== 'resolved')
   return <>
     <PageHeader eyebrow="Selasa, 18 Agustus 2026" title="Selamat pagi, Andini" description="Berikut gambaran operasional kunjungan hari ini." action="Jadwalkan kunjungan" onAction={onSchedule} />
-    <div className="notice"><div className="notice-symbol"><ShieldCheck size={18} /></div><div><strong>Ruang demo CareOps Indonesia</strong><span>Gunakan navigasi peran di kanan atas untuk melihat sisi coordinator, caregiver, dan keluarga.</span></div><button aria-label="Tutup"><X size={16} /></button></div>
+    {noticeVisible && <div className="notice"><div className="notice-symbol"><ShieldCheck size={18} /></div><div><strong>Ruang demo CareOps Indonesia</strong><span>Gunakan navigasi peran di kanan atas untuk melihat sisi coordinator, caregiver, dan keluarga.</span></div><button aria-label="Tutup" onClick={onDismissNotice}><X size={16} /></button></div>}
     <div className="metrics-grid">
       <Metric icon={CalendarDays} label="Kunjungan hari ini" value={String(visits.length)} foot={`${completed} selesai · ${ongoing} berlangsung · ${scheduled} terjadwal`} tone="blue" delta={8} />
       <Metric icon={CheckCircle2} label="Tingkat penyelesaian" value={`${Math.round((completed / Math.max(1, visits.length)) * 100)}%`} foot="Dari seluruh kunjungan" tone="green" delta={4} />
@@ -196,7 +216,7 @@ function DashboardPage({ visits, onOpen, onCheckIn, onSchedule }) {
       <Metric icon={Clock3} label="Kelengkapan catatan" value="86%" foot="Naik 8% dari kemarin" tone="purple" delta={8} />
     </div>
     <div className="content-grid two-thirds">
-      <section className="panel"><PanelTitle title="Tren kunjungan" hint="7 hari terakhir" action="Minggu ini" /><TrendChart data={weeklyTrend} /><div className="trend-legend"><span><i style={{ background: '#3666f6' }} />Kunjungan</span><span><i style={{ background: '#50b89c' }} />Selesai</span></div></section>
+      <section className="panel"><PanelTitle title="Tren kunjungan" hint="7 hari terakhir" /><TrendChart data={weeklyTrend} /><div className="trend-legend"><span><i style={{ background: '#3666f6' }} />Kunjungan</span><span><i style={{ background: '#50b89c' }} />Selesai</span></div></section>
       <section className="panel"><PanelTitle title="Status kunjungan" hint="7 hari terakhir" /><StatusDonut data={statusDistribution} /><div className="donut-legend">{statusDistribution.map((s) => <span key={s.name}><i style={{ background: s.color }} />{s.name}<b>{s.value}</b></span>)}</div></section>
     </div>
     <div className="content-grid two-thirds bottom-grid">
@@ -204,8 +224,8 @@ function DashboardPage({ visits, onOpen, onCheckIn, onSchedule }) {
       <section className="panel"><PanelTitle title="Beban caregiver" hint="Minggu ini" /><LoadBar data={caregiverLoad} /></section>
     </div>
     <div className="content-grid two-thirds bottom-grid">
-      <section className="panel"><PanelTitle title="Perlu perhatian" action="Semua catatan" actionTo="/koordinator/catatan" /><div className="incident-list">{incidentSeed.slice(0, 3).map((item) => <Incident key={item.id} {...item} />)}</div></section>
-      <section className="panel care-quality"><PanelTitle title="Kualitas pendampingan" action="Minggu ini" /><div className="quality-score"><div className="score-ring"><strong>94</strong><span>/100</span></div><div><strong className="score-label">Baik sekali</strong><p>Indikator operasional stabil. Ada ruang perbaikan pada kelengkapan catatan kunjungan pagi.</p></div></div><div className="progress-row"><span>Kunjungan tepat waktu</span><strong>96%</strong><div className="progress"><i style={{ width: '96%' }} /></div></div><div className="progress-row"><span>Catatan lengkap</span><strong>86%</strong><div className="progress"><i style={{ width: '86%' }} /></div></div><div className="progress-row"><span>Kepuasan keluarga</span><strong>4.8</strong><div className="progress"><i style={{ width: '96%' }} /></div></div></section>
+      <section className="panel"><PanelTitle title="Perlu perhatian" action="Semua catatan" actionTo="/koordinator/catatan" /><div className="incident-list">{openIncidents.slice(0, 3).map((item) => <Incident key={item.id} {...item} status={item.status} />)}</div>{openIncidents.length === 0 && <div className="kanban-empty">Tidak ada insiden terbuka.</div>}</section>
+      <section className="panel care-quality"><PanelTitle title="Kualitas pendampingan" hint="Minggu ini" /><div className="quality-score"><div className="score-ring"><strong>94</strong><span>/100</span></div><div><strong className="score-label">Baik sekali</strong><p>Indikator operasional stabil. Ada ruang perbaikan pada kelengkapan catatan kunjungan pagi.</p></div></div><div className="progress-row"><span>Kunjungan tepat waktu</span><strong>96%</strong><div className="progress"><i style={{ width: '96%' }} /></div></div><div className="progress-row"><span>Catatan lengkap</span><strong>86%</strong><div className="progress"><i style={{ width: '86%' }} /></div></div><div className="progress-row"><span>Kepuasan keluarga</span><strong>4.8</strong><div className="progress"><i style={{ width: '96%' }} /></div></div></section>
     </div>
     {activeVisit && <div className="flow-hint"><div className="flow-icon"><Sparkles size={19} /></div><div><strong>Alur contoh sedang berlangsung</strong><span>{activeVisit.caregiver} sedang mencatat kunjungan {activeVisit.client}. Buka menu <b>Catatan & Insiden</b> untuk meninjau draf update keluarga.</span></div><ArrowRight size={18} /></div>}
   </>
@@ -225,10 +245,11 @@ function VisitRow({ visit, onOpen, onCheckIn }) {
   )
 }
 
-function Incident({ title, detail, time, severity }) {
+function Incident({ title, detail, time, severity, status, onResolve }) {
   const tone = { tinggi: 'red', sedang: 'amber', rendah: 'blue', resolved: 'green' }[severity] || 'blue'
   const label = { tinggi: 'Tinggi', sedang: 'Sedang', rendah: 'Rendah' }[severity] || severity
-  return <div className="incident"><div className={`incident-icon ${tone}`}><AlertTriangle size={17} /></div><div><strong>{title}</strong><span>{detail}</span><small>{time}</small></div><span className={`sev-pill ${tone}`}>{label}</span></div>
+  const resolved = status === 'resolved'
+  return <div className="incident"><div className={`incident-icon ${tone}`}><AlertTriangle size={17} /></div><div><strong>{title}</strong><span>{detail}</span><small>{time}</small></div>{resolved ? <span className="sev-pill green">Selesai</span> : (onResolve ? <button className="resolve-btn" onClick={onResolve}>Selesai</button> : <span className={`sev-pill ${tone}`}>{label}</span>)}</div>
 }
 
 function ClientsPage({ clients, onOpen, onAdd }) {
@@ -310,28 +331,36 @@ function VisitsPage({ visits, onOpen, onMove, onAdd, onDelete }) {
   </>
 }
 
-function NotesPage({ update, generateDraft, approveUpdate, exportReport, onOpen }) {
+function NotesPage({ update, visits, incidents, onResolveIncident, generateDraft, approveUpdate, exportReport, onOpen }) {
+  const [filter, setFilter] = useState('semua')
+  const [helpOpen, setHelpOpen] = useState(false)
+  const noteText = (v) => { const n = v.note; return typeof n === 'string' ? n : (n?.text || '') }
+  const noteObj = (v) => { const n = v.note; return typeof n === 'string' ? { text: n } : (n || {}) }
+  const savedNotes = visits.filter((v) => noteText(v).trim())
+  const incomplete = visits.filter((v) => v.status !== 'completed' && !noteText(v).trim())
+  const openIncidents = incidents.filter((i) => i.status !== 'resolved')
   return <>
     <PageHeader eyebrow="Catatan & komunikasi" title="Catatan perawatan" description="Tinjau catatan caregiver, kelola insiden, dan siapkan update keluarga."><button className="btn secondary" onClick={exportReport}><FileText size={16} /> Unduh laporan</button></PageHeader>
     <div className="content-grid notes-grid">
       <section className="panel">
-        <PanelTitle title="Catatan terbaru" action="Filter" />
-        <div className="note-card">
-          <div className="note-card-header"><div className="avatar avatar-blue">RM</div><div><strong>Rina Maharani</strong><span>Hari ini, 11.58 · Bapak Hendra Wijaya</span></div><span className="status-pill blue">Ditinjau</span></div>
-          <p>Bapak Hendra tampak lebih bugar pagi ini. Nafsu makan baik dan sudah menyelesaikan latihan gerak ringan.</p>
-          <div className="note-tags"><span><Check size={13} /> Aktivitas tercatat</span><span><Check size={13} /> Kondisi umum</span><span><Check size={13} /> Asupan makan</span></div>
-        </div>
-        <div className="note-card incomplete">
-          <div className="note-card-header"><div className="avatar avatar-purple">DL</div><div><strong>Dewi Lestari</strong><span>Hari ini, 10.12 · Ibu Sari Wulandari</span></div><span className="status-pill amber">Belum lengkap</span></div>
-          <p>Catatan kunjungan belum dikirim. Lengkapi sebelum pergantian shift sore.</p>
-          <button className="text-btn" onClick={onOpen}>Lengkapi catatan <ArrowRight size={14} /></button>
-        </div>
+        <PanelTitle title="Catatan terbaru" action={filter === 'semua' ? 'Belum lengkap' : 'Semua'} onAction={() => setFilter((f) => (f === 'semua' ? 'belum' : 'semua'))} />
+        {filter === 'semua' && savedNotes.map((v) => {
+          const o = noteObj(v)
+          return <div className="note-card" key={v.id}>
+            <div className="note-card-header"><div className="avatar avatar-blue">{v.initials}</div><div><strong>{v.caregiver}</strong><span>Hari ini · {v.client}</span></div><span className={`status-pill ${v.status === 'completed' ? 'green' : 'blue'}`}>{v.status === 'completed' ? 'Selesai' : 'Ditinjau'}</span></div>
+            <p>{o.text}</p>
+            <div className="note-tags">{o.condition && <span><Check size={13} /> {o.condition}</span>}{o.meal && <span><Check size={13} /> {o.meal}</span>}{o.mood && <span><Check size={13} /> {o.mood}</span>}</div>
+          </div>
+        })}
+        {filter === 'belum' && incomplete.map((v) => <div className="note-card incomplete" key={v.id}><div className="note-card-header"><div className="avatar avatar-purple">{v.initials}</div><div><strong>{v.caregiver}</strong><span>Hari ini · {v.client}</span></div><span className="status-pill amber">Belum lengkap</span></div><p>Catatan kunjungan belum dikirim. Lengkapi sebelum pergantian shift.</p><button className="text-btn" onClick={() => onOpen(v)}>Lengkapi catatan <ArrowRight size={14} /></button></div>)}
+        {((filter === 'semua' && savedNotes.length === 0) || (filter === 'belum' && incomplete.length === 0)) && <div className="kanban-empty">{filter === 'semua' ? 'Belum ada catatan tersimpan.' : 'Semua catatan sudah lengkap.'}</div>}
         <div className="incident-divider" />
-        <PanelTitle title="Insiden & tindak lanjut" />
-        <div className="incident-list">{incidentSeed.map((item) => <Incident key={item.id} {...item} />)}</div>
+        <PanelTitle title="Insiden & tindak lanjut" hint={`${openIncidents.length} terbuka`} />
+        <div className="incident-list">{incidents.map((item) => <Incident key={item.id} {...item} status={item.status} onResolve={item.status === 'resolved' ? undefined : () => onResolveIncident(item.id)} />)}</div>
       </section>
       <section className="panel update-panel">
-        <PanelTitle title="Update untuk keluarga" action="Bantuan" />
+        <PanelTitle title="Update untuk keluarga" action={helpOpen ? 'Tutup bantuan' : 'Bantuan'} onAction={() => setHelpOpen((h) => !h)} />
+        {helpOpen && <div className="helper-card"><ShieldCheck size={15} /><p>Update keluarga adalah ringkasan singkat dari catatan kunjungan untuk dibagikan ke keluarga klien. Buat draf, tinjau isinya, lalu setujui agar tampil di halaman keluarga.</p></div>}
         <div className={`review-status ${update.status}`}><div className="status-check">{update.status === 'approved' ? <Check size={16} /> : <Sparkles size={16} />}</div><div><strong>{update.status === 'approved' ? 'Sudah disetujui' : 'Draf siap ditinjau'}</strong><span>{update.status === 'approved' ? 'Tampil di halaman keluarga.' : 'Baca kembali sebelum membagikan.'}</span></div></div>
         <label className="field-label">Isi update</label>
         <textarea className="update-text" value={update.text} readOnly />
