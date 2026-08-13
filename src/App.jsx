@@ -5,7 +5,7 @@ import {
   CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck,
   ClipboardList, Clock3, Database, Droplets, FileText, HeartPulse, LayoutDashboard, LayoutGrid,
   ListChecks, MapPin, Menu, MessageCircle, MoreHorizontal, NotebookPen, Pencil, Phone, Plus,
-  Search, ShieldCheck, Smile, Sparkles, Stethoscope, Trash2, TrendingUp, UserRound, UsersRound,
+  RotateCcw, Search, ShieldCheck, Smile, Sparkles, Stethoscope, Trash2, TrendingUp, UserRound, UsersRound,
   Utensils, X,
 } from 'lucide-react'
 import { LoadBar, StatusDonut, TrendChart, VitalsChart, VitalsPulse } from './charts.jsx'
@@ -38,6 +38,7 @@ function App() {
   const [caregiverForm, setCaregiverForm] = useState(null)
   const [clientForm, setClientForm] = useState(null)
   const [visitForm, setVisitForm] = useState(null)
+  const [incidentForm, setIncidentForm] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [incidents, setIncidents] = useState(() => load(STORAGE_INCIDENTS, incidentSeed))
   const [noticeVisible, setNoticeVisible] = useState(true)
@@ -71,6 +72,25 @@ function App() {
   const saveCaregiver = (data) => { upsert(setCaregivers)(data); setCaregiverForm(null); notify(`${data.name} disimpan.`) }
   const saveClient = (data) => { upsert(setClients)(data); setClientForm(null); notify(`${data.name} disimpan.`) }
   const saveVisit = (data) => { upsert(setVisits)(data); setVisitForm(null); notify('Kunjungan disimpan.') }
+  const saveIncident = (data) => { upsert(setIncidents)(data); setIncidentForm(null); notify('Insiden baru dicatat.') }
+
+  const recordVitals = (clientId, vitals) => {
+    if (!clientId || !vitals) return
+    setClients((list) => list.map((c) => {
+      if (c.id !== clientId) return c
+      const existing = c.vitals || []
+      const last = existing[existing.length - 1]
+      const entry = { date: '18/08', sistolik: vitals.sistolik, diastolik: vitals.diastolik, nadi: vitals.nadi }
+      // ganti hari yang sama, tambah kalau beda
+      const updated = last && last.date === '18/08' ? [...existing.slice(0, -1), entry] : [...existing, entry]
+      return { ...c, vitals: updated }
+    }))
+  }
+
+  const resetData = () => {
+    setClients(clientSeed); setCaregivers(caregiverSeed); setVisits(initialVisits); setIncidents(incidentSeed); setFamilyUpdate(INITIAL_FAMILY_UPDATE)
+    notify('Data demo direset ke kondisi awal.')
+  }
 
   const askDelete = (kind, id, name) => setDeleteTarget({ kind, id, name })
   const resolveIncident = (id) => { setIncidents((list) => list.map((i) => (i.id === id ? { ...i, status: 'resolved' } : i))); notify('Insiden ditandai selesai.') }
@@ -103,7 +123,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      {isCoordinator && <Sidebar visitCount={visits.filter((v) => v.status === 'scheduled').length} />}
+      {isCoordinator && <Sidebar visitCount={visits.filter((v) => v.status === 'scheduled').length} onReset={resetData} />}
       <main className={`main-content ${isCoordinator ? '' : 'no-sidebar'}`}>
         <Topbar incidents={incidents} visits={visits} />
         <div className="page-wrap">
@@ -113,27 +133,28 @@ function App() {
             <Route path="/koordinator/kunjungan" element={<VisitsPage visits={visits} onOpen={setSelectedVisit} onMove={setStatus} onAdd={() => setVisitForm({ visit: null })} onDelete={(v) => askDelete('visit', v.id, v.client)} />} />
             <Route path="/koordinator/klien" element={<ClientsPage clients={clients} onOpen={setSelectedClient} onAdd={() => setClientForm({ client: null })} />} />
             <Route path="/koordinator/caregiver" element={<CaregiversPage caregivers={caregivers} onAdd={() => setCaregiverForm({ caregiver: null })} onEdit={(c) => setCaregiverForm({ caregiver: c })} onDelete={(c) => askDelete('caregiver', c.id, c.name)} />} />
-            <Route path="/koordinator/catatan" element={<NotesPage update={familyUpdate} visits={visits} incidents={incidents} onResolveIncident={resolveIncident} generateDraft={generateDraft} approveUpdate={approveUpdate} exportReport={exportReport} onOpen={setSelectedVisit} />} />
+            <Route path="/koordinator/catatan" element={<NotesPage update={familyUpdate} visits={visits} incidents={incidents} onResolveIncident={resolveIncident} onAddIncident={() => setIncidentForm({ incident: null })} generateDraft={generateDraft} approveUpdate={approveUpdate} exportReport={exportReport} onOpen={setSelectedVisit} />} />
             <Route path="/koordinator/database" element={<DatabasePage visits={visits} clients={clients} caregivers={caregivers} />} />
-            <Route path="/caregiver" element={<CaregiverPage visits={visits} onOpen={setSelectedVisit} onCheckIn={(v) => setStatus(v, 'checked-in')} onComplete={(v) => setStatus(v, 'completed')} onToggleChecklist={toggleChecklist} />} />
+            <Route path="/caregiver" element={<CaregiverPage visits={visits} caregivers={caregivers} onOpen={setSelectedVisit} onCheckIn={(v) => setStatus(v, 'checked-in')} onComplete={(v) => setStatus(v, 'completed')} onToggleChecklist={toggleChecklist} />} />
             <Route path="/keluarga" element={<Navigate to="/keluarga/c2" replace />} />
             <Route path="/keluarga/:clientId" element={<FamilyRoute update={familyUpdate} clients={clients} />} />
             <Route path="*" element={<Navigate to="/koordinator" replace />} />
           </Routes>
         </div>
       </main>
-      {selectedVisit && <VisitModal visit={selectedVisit} onClose={() => setSelectedVisit(null)} onCheckIn={() => setStatus(selectedVisit, 'checked-in')} onComplete={() => setStatus(selectedVisit, 'completed')} onToggleChecklist={(i) => toggleChecklist(selectedVisit.id, i)} onSave={(note) => { updateVisit(selectedVisit.id, { note }); notify('Catatan perawatan tersimpan.') }} onDelete={() => { setSelectedVisit(null); askDelete('visit', selectedVisit.id, selectedVisit.client) }} />}
+      {selectedVisit && <VisitModal visit={selectedVisit} onClose={() => setSelectedVisit(null)} onCheckIn={() => setStatus(selectedVisit, 'checked-in')} onComplete={() => setStatus(selectedVisit, 'completed')} onToggleChecklist={(i) => toggleChecklist(selectedVisit.id, i)} onSave={(payload) => { updateVisit(selectedVisit.id, { note: payload }); if (payload.vitals) recordVitals(selectedVisit.clientId, payload.vitals); notify('Catatan perawatan tersimpan.') }} onDelete={() => { setSelectedVisit(null); askDelete('visit', selectedVisit.id, selectedVisit.client) }} />}
       {selectedClient && <ClientDrawer client={selectedClient} caregivers={caregivers} onClose={() => setSelectedClient(null)} onEdit={(c) => { setSelectedClient(null); setClientForm({ client: c }) }} onDelete={(c) => { setSelectedClient(null); askDelete('client', c.id, c.name) }} />}
       {caregiverForm && <CaregiverFormModal caregiver={caregiverForm.caregiver} onClose={() => setCaregiverForm(null)} onSave={saveCaregiver} />}
       {clientForm && <ClientFormModal client={clientForm.client} caregivers={caregivers} onClose={() => setClientForm(null)} onSave={saveClient} />}
       {visitForm && <VisitFormModal visit={visitForm.visit} clients={clients} caregivers={caregivers} onClose={() => setVisitForm(null)} onSave={saveVisit} />}
+      {incidentForm && <IncidentFormModal clients={clients} onClose={() => setIncidentForm(null)} onSave={saveIncident} />}
       {deleteTarget && <ConfirmModal title={deleteTarget.kind === 'visit' ? 'Hapus kunjungan?' : deleteTarget.kind === 'client' ? 'Hapus klien?' : 'Hapus caregiver?'} message={`"${deleteTarget.name}" akan dihapus permanen dari ruang demo. Tindakan ini tidak bisa dibatalkan.`} onCancel={() => setDeleteTarget(null)} onConfirm={confirmDelete} />}
       {toast && <div className="toast"><CheckCircle2 size={17} /> {toast}</div>}
     </div>
   )
 }
 
-function Sidebar({ visitCount }) {
+function Sidebar({ visitCount, onReset }) {
   const location = useLocation()
   const items = [
     { icon: LayoutDashboard, label: 'Ringkasan', to: '/koordinator' },
@@ -156,6 +177,7 @@ function Sidebar({ visitCount }) {
       </nav>
       <div className="sidebar-bottom">
         <div className="help-card"><div className="help-icon"><ShieldCheck size={18} /></div><div><strong>Data simulasi</strong><p>Ruang ini menggunakan data contoh, bukan data pasien nyata.</p></div></div>
+        <button className="reset-btn" onClick={onReset}><RotateCcw size={14} /> Reset data demo</button>
         <div className="profile-mini"><div className="avatar avatar-purple">AN</div><div><strong>Andini Nurhaliza</strong><span>Koordinator</span></div><MoreHorizontal size={18} className="muted-icon" /></div>
       </div>
     </aside>
@@ -331,7 +353,7 @@ function VisitsPage({ visits, onOpen, onMove, onAdd, onDelete }) {
   </>
 }
 
-function NotesPage({ update, visits, incidents, onResolveIncident, generateDraft, approveUpdate, exportReport, onOpen }) {
+function NotesPage({ update, visits, incidents, onResolveIncident, onAddIncident, generateDraft, approveUpdate, exportReport, onOpen }) {
   const [filter, setFilter] = useState('semua')
   const [helpOpen, setHelpOpen] = useState(false)
   const noteText = (v) => { const n = v.note; return typeof n === 'string' ? n : (n?.text || '') }
@@ -355,7 +377,7 @@ function NotesPage({ update, visits, incidents, onResolveIncident, generateDraft
         {filter === 'belum' && incomplete.map((v) => <div className="note-card incomplete" key={v.id}><div className="note-card-header"><div className="avatar avatar-purple">{v.initials}</div><div><strong>{v.caregiver}</strong><span>Hari ini · {v.client}</span></div><span className="status-pill amber">Belum lengkap</span></div><p>Catatan kunjungan belum dikirim. Lengkapi sebelum pergantian shift.</p><button className="text-btn" onClick={() => onOpen(v)}>Lengkapi catatan <ArrowRight size={14} /></button></div>)}
         {((filter === 'semua' && savedNotes.length === 0) || (filter === 'belum' && incomplete.length === 0)) && <div className="kanban-empty">{filter === 'semua' ? 'Belum ada catatan tersimpan.' : 'Semua catatan sudah lengkap.'}</div>}
         <div className="incident-divider" />
-        <PanelTitle title="Insiden & tindak lanjut" hint={`${openIncidents.length} terbuka`} />
+        <PanelTitle title="Insiden & tindak lanjut" hint={`${openIncidents.length} terbuka`} action="Tambah" onAction={onAddIncident} />
         <div className="incident-list">{incidents.map((item) => <Incident key={item.id} {...item} status={item.status} onResolve={item.status === 'resolved' ? undefined : () => onResolveIncident(item.id)} />)}</div>
       </section>
       <section className="panel update-panel">
@@ -373,12 +395,15 @@ function NotesPage({ update, visits, incidents, onResolveIncident, generateDraft
   </>
 }
 
-function CaregiverPage({ visits, onOpen, onCheckIn, onComplete, onToggleChecklist }) {
-  const own = visits.filter((v) => v.caregiver === 'Dewi Lestari')
+function CaregiverPage({ visits, caregivers, onOpen, onCheckIn, onComplete, onToggleChecklist }) {
+  const [caregiverName, setCaregiverName] = useState(caregivers[0]?.name || 'Dewi Lestari')
+  const own = visits.filter((v) => v.caregiver === caregiverName)
   const done = own.filter((v) => v.status === 'completed').length
   const progress = own.length ? Math.round((done / own.length) * 100) : 0
+  const firstName = caregiverName.split(' ')[0]
   return <div className="caregiver-view">
-    <div className="caregiver-greeting"><p className="eyebrow">Selasa, 18 Agustus 2026</p><h1>Selamat pagi, Dewi</h1><p>Siap mendampingi {own.length} kunjungan hari ini?</p></div>
+    <div className="caregiver-selector"><span>Lihat sebagai</span><select value={caregiverName} onChange={(e) => setCaregiverName(e.target.value)}>{caregivers.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}</select><ChevronDown size={14} /></div>
+    <div className="caregiver-greeting"><p className="eyebrow">Selasa, 18 Agustus 2026</p><h1>Selamat pagi, {firstName}</h1><p>Siap mendampingi {own.length} kunjungan hari ini?</p></div>
     <div className="caregiver-stat-banner"><div><span>Kunjungan hari ini</span><strong>{own.length}</strong></div><div className="banner-divider" /><div><span>Selesai</span><strong>{done}</strong></div><div className="banner-progress"><i style={{ width: `${progress}%` }} /></div></div>
     <div className="mobile-section-title"><h2>Tugas hari ini</h2><span>{own.length} kunjungan</span></div>
     <div className="mobile-visits">
@@ -402,6 +427,7 @@ function CaregiverPage({ visits, onOpen, onCheckIn, onComplete, onToggleChecklis
         )
       })}
     </div>
+    {own.length === 0 && <div className="empty-state"><CalendarDays size={22} /><p>Tidak ada kunjungan terjadwal untuk {firstName}.</p></div>}
     <div className="mobile-safety"><ShieldCheck size={18} /><div><strong>Pengingat pendampingan</strong><span>Catat kondisi yang terlihat dan kegiatan yang dilakukan. Jangan memasukkan diagnosis atau saran obat.</span></div></div>
   </div>
 }
@@ -608,6 +634,10 @@ function ClientFormModal({ client, caregivers, onClose, onSave }) {
   const [conditions, setConditions] = useState((client?.conditions || []).join(', '))
   const [caregiver, setCaregiver] = useState(client?.caregiver || caregivers[0]?.name || '')
   const [status, setStatus] = useState(client?.status || 'Stabil')
+  const [fcName, setFcName] = useState(client?.familyContact?.name || '')
+  const [fcRelation, setFcRelation] = useState(client?.familyContact?.relation || 'Anak')
+  const [fcPhone, setFcPhone] = useState(client?.familyContact?.phone || '')
+  const [carePlanText, setCarePlanText] = useState((client?.carePlan || []).join('\n'))
   const submit = () => {
     if (!name.trim()) return
     onSave({
@@ -618,8 +648,8 @@ function ClientFormModal({ client, caregivers, onClose, onSave }) {
       conditions: conditions.split(',').map((s) => s.trim()).filter(Boolean),
       caregiver, status, statusTone: status === 'Perlu perhatian' ? 'amber' : 'green',
       nextVisit: client?.nextVisit || 'Belum dijadwalkan',
-      familyContact: client?.familyContact || { name: '—', relation: '—', phone: '—' },
-      carePlan: client?.carePlan || ['Pantau kondisi harian', 'Dampingi aktivitas ringan'],
+      familyContact: { name: fcName.trim() || '—', relation: fcRelation.trim() || '—', phone: fcPhone.trim() || '—' },
+      carePlan: carePlanText.split('\n').map((s) => s.trim()).filter(Boolean),
       vitals: client?.vitals || defaultVitals(),
       visitHistory: client?.visitHistory || [],
     })
@@ -642,6 +672,13 @@ function ClientFormModal({ client, caregivers, onClose, onSave }) {
       </div>
       <div className="field"><label className="field-label">Kondisi (pisahkan dengan koma)</label><input className="text-input" value={conditions} onChange={(e) => setConditions(e.target.value)} placeholder="Contoh: Hipertensi terkontrol, Mobilitas ringan" /></div>
       <div className="field"><label className="field-label">Caregiver utama</label><select className="text-input" value={caregiver} onChange={(e) => setCaregiver(e.target.value)}>{caregivers.map((c) => <option key={c.id}>{c.name}</option>)}</select></div>
+      <div className="modal-section-head"><UserRound size={15} /><strong>Kontak keluarga</strong></div>
+      <div className="form-grid">
+        <div className="field"><label className="field-label">Nama kontak</label><input className="text-input" value={fcName} onChange={(e) => setFcName(e.target.value)} placeholder="Contoh: Rani Rahayu" /></div>
+        <div className="field"><label className="field-label">Hubungan</label><select className="text-input" value={fcRelation} onChange={(e) => setFcRelation(e.target.value)}>{['Anak', 'Pasangan', 'Cucu', 'Saudara', 'Lainnya'].map((r) => <option key={r}>{r}</option>)}</select></div>
+      </div>
+      <div className="field"><label className="field-label">Nomor telepon</label><input className="text-input" value={fcPhone} onChange={(e) => setFcPhone(e.target.value)} placeholder="0812-xxxx-xxxx" /></div>
+      <div className="field"><label className="field-label">Rencana pendampingan (satu per baris)</label><textarea className="note-input" value={carePlanText} onChange={(e) => setCarePlanText(e.target.value)} placeholder={'Pantau kondisi harian\nDampingi aktivitas ringan'} /></div>
       <div className="button-row"><button className="btn secondary" onClick={onClose}>Batal</button><button className="btn primary" onClick={submit} disabled={!name.trim()}><Check size={16} /> {editing ? 'Simpan perubahan' : 'Tambah klien'}</button></div>
     </div></div>
   )
@@ -680,6 +717,31 @@ function VisitFormModal({ visit, clients, caregivers, onClose, onSave }) {
   )
 }
 
+function IncidentFormModal({ clients, onClose, onSave }) {
+  const [title, setTitle] = useState('')
+  const [clientName, setClientName] = useState(clients[0]?.name || '')
+  const [category, setCategory] = useState('Dokumentasi')
+  const [severity, setSeverity] = useState('sedang')
+  const [detail, setDetail] = useState('')
+  const submit = () => {
+    if (!title.trim()) return
+    onSave({ id: uid(), title: title.trim(), client: clientName, category, severity, status: 'open', detail: detail.trim() || '—', time: 'Baru saja' })
+  }
+  return (
+    <div className="modal-backdrop" onClick={onClose}><div className="modal form-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-header"><div><p className="eyebrow">Catat insiden</p><h2>Insiden baru</h2></div><button className="close-btn" onClick={onClose}><X size={18} /></button></div>
+      <div className="field"><label className="field-label">Judul insiden</label><input className="text-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Contoh: Catatan kunjungan belum lengkap" /></div>
+      <div className="form-grid">
+        <div className="field"><label className="field-label">Klien</label><select className="text-input" value={clientName} onChange={(e) => setClientName(e.target.value)}>{clients.map((c) => <option key={c.id}>{c.name}</option>)}</select></div>
+        <div className="field"><label className="field-label">Kategori</label><select className="text-input" value={category} onChange={(e) => setCategory(e.target.value)}>{['Dokumentasi', 'Penugasan', 'Jadwal', 'Komunikasi', 'Lainnya'].map((c) => <option key={c}>{c}</option>)}</select></div>
+      </div>
+      <div className="field"><label className="field-label">Tingkat keparahan</label><div className="seg-group">{['rendah', 'sedang', 'tinggi'].map((s) => <button key={s} className={`seg ${severity === s ? 'active' : ''}`} onClick={() => setSeverity(s)}>{s === 'rendah' ? 'Rendah' : s === 'sedang' ? 'Sedang' : 'Tinggi'}</button>)}</div></div>
+      <div className="field"><label className="field-label">Detail</label><textarea className="note-input" value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="Jelaskan detail insiden..." /></div>
+      <div className="button-row"><button className="btn secondary" onClick={onClose}>Batal</button><button className="btn primary" onClick={submit} disabled={!title.trim()}><Check size={16} /> Catat insiden</button></div>
+    </div></div>
+  )
+}
+
 function VisitModal({ visit, onClose, onCheckIn, onComplete, onToggleChecklist, onSave, onDelete }) {
   const raw = visit.note
   const existing = typeof raw === 'string' ? { text: raw } : (raw && typeof raw === 'object' ? raw : null)
@@ -688,13 +750,20 @@ function VisitModal({ visit, onClose, onCheckIn, onComplete, onToggleChecklist, 
   const [meal, setMeal] = useState(existing?.meal || 'Cukup')
   const [mood, setMood] = useState(existing?.mood || 'baik')
   const [eliminasi, setEliminasi] = useState(existing?.eliminasi || '')
+  const [sistolik, setSistolik] = useState(existing?.vitals?.sistolik || '')
+  const [diastolik, setDiastolik] = useState(existing?.vitals?.diastolik || '')
+  const [nadi, setNadi] = useState(existing?.vitals?.nadi || '')
   const [editing, setEditing] = useState(!existing?.text)
   const [justSaved, setJustSaved] = useState(Boolean(existing?.text))
   const saved = justSaved
   const moodObj = MOODS.find((m) => m.key === mood) || MOODS[0]
+  const hasVitals = Boolean(sistolik || diastolik || nadi)
   const doneCount = (visit.checklist || []).filter((c) => c.done).length
   const total = (visit.checklist || []).length
-  const saveNote = () => { onSave({ text: note, condition, meal, mood, eliminasi }); setJustSaved(true); setEditing(false) }
+  const saveNote = () => {
+    const vitals = hasVitals ? { sistolik: Number(sistolik) || 0, diastolik: Number(diastolik) || 0, nadi: Number(nadi) || 0 } : null
+    onSave({ text: note, condition, meal, mood, eliminasi, vitals }); setJustSaved(true); setEditing(false)
+  }
   const completeVisit = () => { onComplete(visit); onClose() }
   return (
     <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -713,6 +782,7 @@ function VisitModal({ visit, onClose, onCheckIn, onComplete, onToggleChecklist, 
                 <div><span>Suasana hati</span><b>{moodObj.emoji} {moodObj.label}</b></div>
               </div>
               {eliminasi && <div className="preview-kv"><span>Eliminasi</span><b>{eliminasi}</b></div>}
+              {hasVitals && <div className="preview-kv"><span>Tanda vital</span><b>{sistolik}/{diastolik} mmHg · {nadi} bpm</b></div>}
               {note && <p className="preview-note">{note}</p>}
             </div>
             <div className="button-row"><button className="btn secondary" onClick={() => setEditing(true)}><FileText size={16} /> Edit catatan</button>{visit.status === 'checked-in' && <button className="btn primary" onClick={completeVisit}><CheckCircle2 size={16} /> Selesaikan</button>}</div>
@@ -726,6 +796,12 @@ function VisitModal({ visit, onClose, onCheckIn, onComplete, onToggleChecklist, 
             </div>
             <div className="field"><label className="field-label">Suasana hati</label><div className="mood-group">{MOODS.map((m) => <button key={m.key} className={`mood ${mood === m.key ? 'active' : ''}`} onClick={() => setMood(m.key)}><span>{m.emoji}</span>{m.label}</button>)}</div></div>
             <div className="field"><label className="field-label">Eliminasi / catatan lain</label><input className="text-input" value={eliminasi} onChange={(e) => setEliminasi(e.target.value)} placeholder="Contoh: buang air kecil normal, 3x" /></div>
+            <div className="modal-section-head"><Activity size={15} /><strong>Tanda vital</strong><span className="opt-label">opsional</span></div>
+            <div className="form-grid three">
+              <div className="field"><label className="field-label">Sistolik</label><input className="text-input" type="number" value={sistolik} onChange={(e) => setSistolik(e.target.value)} placeholder="120" /></div>
+              <div className="field"><label className="field-label">Diastolik</label><input className="text-input" type="number" value={diastolik} onChange={(e) => setDiastolik(e.target.value)} placeholder="80" /></div>
+              <div className="field"><label className="field-label">Denyut</label><input className="text-input" type="number" value={nadi} onChange={(e) => setNadi(e.target.value)} placeholder="72" /></div>
+            </div>
             <div className="field"><label className="field-label">Catatan perawatan</label><textarea className="note-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Tuliskan kondisi yang terlihat dan kegiatan yang dilakukan..." /></div>
             <div className="modal-guidance"><Sparkles size={15} /><span>Catatan akan dipakai untuk menyiapkan draf ringkasan pergantian shift dan update keluarga.</span></div>
             <div className="button-row"><button className="btn primary" onClick={saveNote}><Check size={16} /> Simpan catatan</button>{visit.status === 'checked-in' && <button className="btn secondary" onClick={completeVisit}><CheckCircle2 size={16} /> Selesaikan</button>}</div>
