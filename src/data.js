@@ -178,6 +178,28 @@ export const clients = [
       { date: '17/08', caregiver: 'Rina Maharani', note: 'Latihan gerak halus selesai.', status: 'Selesai' },
     ],
   },
+  {
+    id: 'c9', name: 'Ibu Nani Rahayu', initials: 'NR', age: 71, gender: 'Perempuan',
+    city: 'Kemang', area: 'Jakarta Selatan', careType: 'Pendampingan siang', careLevel: 'Sedang',
+    conditions: ['Artritis ringan'], allergies: ['Tidak ada'],
+    diet: 'Seimbang', mobility: 'Bantuan berjalan ringan',
+    caregiver: 'Dewi Lestari', nextVisit: 'Sedang berlangsung', status: 'Stabil', statusTone: 'green',
+    familyContact: { name: 'Rani Rahayu', relation: 'Anak', phone: '0812-xxxx-0009' },
+    carePlan: ['Dampingi aktivitas siang', 'Ingatkan minum cukup', 'Dampingi jalan ringan'],
+    vitals: [
+      { date: '12/08', sistolik: 132, diastolik: 82, nadi: 75 },
+      { date: '13/08', sistolik: 131, diastolik: 82, nadi: 74 },
+      { date: '14/08', sistolik: 130, diastolik: 81, nadi: 75 },
+      { date: '15/08', sistolik: 129, diastolik: 81, nadi: 73 },
+      { date: '16/08', sistolik: 128, diastolik: 80, nadi: 74 },
+      { date: '17/08', sistolik: 127, diastolik: 80, nadi: 73 },
+      { date: '18/08', sistolik: 126, diastolik: 79, nadi: 73 },
+    ],
+    visitHistory: [
+      { date: '16/08', caregiver: 'Dewi Lestari', note: 'Aktivitas siang lancar.', status: 'Selesai' },
+      { date: '17/08', caregiver: 'Dewi Lestari', note: 'Jalan ringan selesai tanpa keluhan.', status: 'Selesai' },
+    ],
+  },
 ]
 
 export const caregivers = [
@@ -199,6 +221,9 @@ export const initialVisits = [
   ] },
   { id: 4, client: 'Bapak Agus Santoso', clientId: 'c4', initials: 'AS', caregiver: 'Dewi Lestari', time: '16.00 – 18.00', type: 'Pendampingan sore', status: 'completed', location: 'Tebet', checklist: [
     { label: 'Pantau gula darah', done: true }, { label: 'Olahraga ringan', done: true }, { label: 'Ingatkan pola makan', done: true },
+  ] },
+  { id: 5, client: 'Ibu Nani Rahayu', clientId: 'c9', initials: 'NR', caregiver: 'Dewi Lestari', time: '11.00 – 12.30', type: 'Pendampingan siang', status: 'checked-in', location: 'Kemang', checklist: [
+    { label: 'Dampingi aktivitas siang', done: true }, { label: 'Ingatkan minum cukup', done: false }, { label: 'Dampingi jalan ringan', done: false },
   ] },
 ]
 
@@ -238,4 +263,4 @@ export const INITIAL_FAMILY_UPDATE = {
   text: 'Bapak Hendra menjalani aktivitas pagi dengan baik. Ia mengikuti latihan gerak ringan dan makan dengan cukup. Tidak ada keluhan baru yang dicatat selama kunjungan.',
 }
 
-export const STORAGE_KEY = 'careops-visits-v2'
+export const STORAGE_KEY = 'careops-visits-v3'

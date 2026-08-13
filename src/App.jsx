@@ -20,7 +20,7 @@ const MOODS = [
   { key: 'cukup', label: 'Cukup', emoji: '🙂' },
   { key: 'lesu', label: 'Lesu', emoji: '😔' },
 ]
-const STORAGE_CLIENTS = 'careops-clients'
+const STORAGE_CLIENTS = 'careops-clients-v2'
 const STORAGE_CAREGIVERS = 'careops-caregivers'
 const STORAGE_INCIDENTS = 'careops-incidents'
 const uid = () => 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
